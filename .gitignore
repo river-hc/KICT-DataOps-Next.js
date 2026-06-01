@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# 환경설정 (민감정보)
+.env
+*.env
+
+# Claude Code
+CLAUDE.md
+.claude/
+
+# 실행 산출물
+runs/
+mlruns/
+
+# DB 데이터
+postgres-data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend (담당자가 별도 세팅)
+frontend/node_modules/
+frontend/.next/
+frontend/.env*
+frontend/next-env.d.ts
+frontend/package-lock.json
+frontend/package.json
+frontend/tsconfig.json
+frontend/next.config.js
+frontend/app/
