@@ -1,1 +1,0 @@
-from app.domain.training.entity.training_job import JobStatus, TrainingJob, TrainingMode
