@@ -100,7 +100,7 @@ export default function Dashboard() {
   }, [fetchAll]);
 
   useEffect(() => {
-    const id = setInterval(fetchAll, 5000);
+    const id = setInterval(fetchAll, 2000);
     return () => clearInterval(id);
   }, [fetchAll]);
 

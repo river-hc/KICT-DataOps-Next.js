@@ -34,12 +34,10 @@ postgres-data/
 .DS_Store
 Thumbs.db
 
-# Frontend (담당자가 별도 세팅)
+# Frontend
 frontend/node_modules/
 frontend/.next/
 frontend/.env*
 frontend/next-env.d.ts
 frontend/package-lock.json
-frontend/tsconfig.json
-frontend/next.config.js
 frontend/app/
