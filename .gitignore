@@ -5,6 +5,12 @@ __pycache__/
 .venv/
 *.egg-info/
 
+# Backend 폴더 전체 제외 (독립 레포지토리)
+backend/
+!backend/.gitkeep
+backend-temp/
+!backend-temp/ .gitkeep
+
 # 환경설정 (민감정보)
 .env
 *.env

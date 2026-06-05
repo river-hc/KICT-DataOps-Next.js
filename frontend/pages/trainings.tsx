@@ -1,0 +1,119 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Layout from '../lib/Layout';
+import { getTrainings, createTraining, type TrainingJob } from '../lib/api';
+
+export default function Trainings() {
+  const [trainings, setTrainings] = useState<TrainingJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState('');
+  const [experimentName, setExperimentName] = useState('');
+  const [mode, setMode] = useState<'single' | 'multi'>('single');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const refresh = () => getTrainings().then(setTrainings).finally(() => setLoading(false));
+  useEffect(() => { refresh(); }, []);
+
+  const handleCreate = async () => {
+    if (!experimentName) return;
+    await createTraining({ 
+      user_name: userName || 'admin',
+      experiment_name: experimentName, 
+      mode,
+      parameters: {} 
+    });
+    setExperimentName('');
+    refresh();
+  };
+
+  const handleControl = async (id: number, action: string) => {
+    refresh();
+  };
+
+  const statusColor = (s: string) => {
+    if (s === 'running') return 'text-green-600';
+    if (s === 'failed') return 'text-red-600';
+    if (s === 'pending' || s === 'queued') return 'text-yellow-600';
+    if (s === 'completed') return 'text-blue-600';
+    return 'text-gray-600';
+  };
+
+  return (
+    <Layout>
+      <div className="mb-6 flex gap-3 items-end">
+        <div>
+          <label className="text-sm text-gray-500">사용자</label>
+          <input
+            value={userName}
+            onChange={(e) => setUserName(e.target.value)}
+            className="border rounded px-3 py-2 w-48"
+            placeholder="사용자 이름"
+          />
+        </div>
+        <div>
+          <label className="text-sm text-gray-500">실험명</label>
+          <input
+            value={experimentName}
+            onChange={(e) => setExperimentName(e.target.value)}
+            className="border rounded px-3 py-2 w-48"
+            placeholder="실험 이름"
+          />
+        </div>
+        <div>
+          <label className="text-sm text-gray-500">모드</label>
+          <select value={mode} onChange={(e) => setMode(e.target.value as 'single' | 'multi')} className="border rounded px-3 py-2">
+            <option value="single">single</option>
+            <option value="multi">multi</option>
+          </select>
+        </div>
+        <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+          학습 시작
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="text-left p-3">ID</th>
+              <th className="text-left p-3">이름</th>
+              <th className="text-left p-3">trainer</th>
+              <th className="text-left p-3">GPU</th>
+              <th className="text-left p-3">상태</th>
+              <th className="text-left p-3">작성일</th>
+              <th className="text-left p-3">작업</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trainings.map((t) => (
+              <tr
+                key={t.job_id}
+                className={`border-t cursor-pointer hover:bg-gray-50 ${selectedId === t.job_id ? 'bg-blue-50' : ''}`}
+                onClick={() => setSelectedId(t.job_id)}
+              >
+                <td className="p-3">{t.job_id}</td>
+                <td className="p-3">{t.experiment_name}</td>
+                <td className="p-3">{t.mode}</td>
+                <td className={`p-3 font-medium ${statusColor(t.status)}`}>{t.status}</td>
+                <td className="p-3 text-gray-500">{t.created_at?.slice(0, 10)}</td>
+                <td className="p-3">
+                  {t.status === 'running' && (
+                    <button onClick={(e) => { e.stopPropagation(); handleControl(t.job_id, 'stop'); }} className="text-red-600 hover:underline text-xs mr-2">
+                      정지
+                    </button>
+                  )}
+                  {(t.status === 'completed' || t.status === 'failed') && (
+                    <button onClick={(e) => { e.stopPropagation(); handleControl(t.job_id, 'reset'); }} className="text-yellow-600 hover:underline text-xs">
+                      재설정
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Layout>
+  );
+}

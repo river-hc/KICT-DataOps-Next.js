@@ -11,3 +11,24 @@ services:
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kict-dataops-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://aiuser:aipass@postgres:5432/aidb
+      RUNS_DIR: /app/runs
+      TRAINER_DIR: /app/trainer
+      MAX_CONCURRENT_JOBS: 1
+    volumes:
+      - ./backend/runs:/app/runs
+      - ./backend/trainer:/app/trainer
+      - /home/harry/models:/home/harry/models
+      - /home/harry/data:/home/harry/data
+    depends_on:
+      - postgres
+    restart: unless-stopped
