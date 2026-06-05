@@ -40,7 +40,6 @@ frontend/.next/
 frontend/.env*
 frontend/next-env.d.ts
 frontend/package-lock.json
-frontend/package.json
 frontend/tsconfig.json
 frontend/next.config.js
 frontend/app/
