@@ -1,17 +1,19 @@
-import { useState } from 'react';
-import { useRouter } from 'next/router';
-import Layout from '@/lib/Layout';
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import Layout from '../lib/Layout';
 import {
   getExperiments,
   getExperimentRuns,
   createExperiment,
   fileToBase64,
   calculateTimestamp,
-  Experiment,
-  ExperimentRun,
-} from '@/lib/api';
+  type Experiment,
+  type ExperimentRun,
+  type ExperimentCreateResponse,
+} from '../lib/api';
 
-// ───_asc File Upload State ──────────────────────────────────
+// ─── 파일 상태 타입 ────────────────────────────────────────────────────────────
 
 interface AscFileState {
   file: File | null;
@@ -20,570 +22,637 @@ interface AscFileState {
   fileData: string | null;
 }
 
-// ─── Main Page Component ──────────────────────────────────
+const EMPTY_FILE: AscFileState = { file: null, filename: null, timestamp: null, fileData: null };
+
+// 파일 슬롯별 설정 (API: file_t0=T-30분, file_t3=현재)
+const FILE_SLOTS = [
+  { key: 't0' as const, label: 'T-30분', sublabel: '30분 전 관측', offset: -30 },
+  { key: 't1' as const, label: 'T-20분', sublabel: '20분 전 관측', offset: -20 },
+  { key: 't2' as const, label: 'T-10분', sublabel: '10분 전 관측', offset: -10 },
+  { key: 't3' as const, label: 'T (현재)', sublabel: '현재 관측',    offset: 0 },
+];
+
+type SlotKey = 't0' | 't1' | 't2' | 't3';
+
+// ─── 파일 업로드 카드 컴포넌트 ────────────────────────────────────────────────
+
+function FileCard({
+  label,
+  sublabel,
+  state,
+  disabled,
+  onFile,
+}: {
+  label: string;
+  sublabel: string;
+  state: AscFileState;
+  disabled: boolean;
+  onFile: (file: File | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div
+      onClick={() => !disabled && inputRef.current?.click()}
+      className={`relative rounded-xl border-2 p-4 transition-all ${
+        disabled
+          ? 'opacity-50 cursor-not-allowed border-gray-200 bg-gray-50'
+          : state.file
+          ? 'border-blue-400 bg-blue-50 cursor-pointer hover:border-blue-500'
+          : 'border-dashed border-gray-300 bg-white cursor-pointer hover:border-blue-400 hover:bg-gray-50'
+      }`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".asc,.txt,.csv,.dat"
+        className="hidden"
+        onChange={e => onFile(e.target.files?.[0] ?? null)}
+        disabled={disabled}
+      />
+
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <span className="text-sm font-semibold text-gray-700">{label}</span>
+          <span className="ml-2 text-xs text-gray-400">{sublabel}</span>
+        </div>
+        {state.file && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onFile(null); }}
+            className="text-xs text-red-400 hover:text-red-600 font-medium"
+          >
+            삭제
+          </button>
+        )}
+      </div>
+
+      {state.file ? (
+        <div>
+          <p className="text-sm font-medium text-blue-700 truncate">{state.filename}</p>
+          <p className="text-xs text-gray-500 mt-1">
+            {(state.file.size / 1024).toFixed(1)} KB
+            {state.timestamp && <span className="ml-2 text-gray-400">· {state.timestamp}</span>}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 text-center py-2">클릭하여 .asc 파일 선택</p>
+      )}
+    </div>
+  );
+}
+
+// ─── 상태 뱃지 ────────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string | null }) {
+  const s = (status ?? '').toUpperCase();
+  const cls =
+    s === 'RUNNING'   ? 'bg-green-100 text-green-800' :
+    s === 'COMPLETED' ? 'bg-blue-100 text-blue-800' :
+    s === 'FAILED'    ? 'bg-red-100 text-red-800' :
+    s === 'QUEUED'    ? 'bg-yellow-100 text-yellow-800' :
+    'bg-gray-100 text-gray-800';
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
+      {status ?? '-'}
+    </span>
+  );
+}
+
+// ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 
 export default function ExperimentsPage() {
-  const router = useRouter();
   const [activeView, setActiveView] = useState<'list' | 'create'>('list');
 
-  // Experiments list state
+  // 목록 상태
   const [experiments, setExperiments] = useState<Experiment[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // Create experiment form state
-  const [runDatetime, setRunDatetime] = useState('');
-  const [modelVersion, setModelVersion] = useState<'v2' | 'v3'>('v3');
-  const [forecastSteps, setForecastSteps] = useState<string>('60');
-  const [includePreview, setIncludePreview] = useState(true);
-  const [experimentName, setExperimentName] = useState('');
-  const [experimentTags, setExperimentTags] = useState('');
-  const [experimentMemo, setExperimentMemo] = useState('');
-  const [createLoading, setCreateLoading] = useState(false);
-  const [createResult, setCreateResult] = useState<{ id: number; name: string; message: string } | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  // Asc file states (T0~T3)
-  const [ascFileT0, setAscFileT0] = useState<AscFileState>({
-    file: null,
-    filename: null,
-    timestamp: null,
-    fileData: null,
-  });
-  const [ascFileT1, setAscFileT1] = useState<AscFileState>({
-    file: null,
-    filename: null,
-    timestamp: null,
-    fileData: null,
-  });
-  const [ascFileT2, setAscFileT2] = useState<AscFileState>({
-    file: null,
-    filename: null,
-    timestamp: null,
-    fileData: null,
-  });
-  const [ascFileT3, setAscFileT3] = useState<AscFileState>({
-    file: null,
-    filename: null,
-    timestamp: null,
-    fileData: null,
-  });
-
-  // ─── Load experiments ───────────────────────────────────
-
-  const loadExperiments = async () => {
-    setLoading(true);
-    try {
-      const data = await getExperiments();
-      setExperiments(data);
-    } catch (err) {
-      console.error('Failed to load experiments:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ─── Load runs for an experiment ─────────────────────────────
-
+  const [listLoading, setListLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [runs, setRuns] = useState<ExperimentRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
-  const [expandedExperiment, setExpandedExperiment] = useState<number | null>(null);
 
-  const loadRuns = async (experimentId: number) => {
-    if (expandedExperiment === experimentId) {
-      setExpandedExperiment(null);
+  // 생성 폼 상태
+  const [runDatetime, setRunDatetime]         = useState('');
+  const [modelVersion, setModelVersion]       = useState<'v2' | 'v3'>('v3');
+  const [forecastSteps, setForecastSteps]     = useState('10,20,30,60,90,120,180');
+  const [includePreview, setIncludePreview]   = useState(true);
+  const [experimentName, setExperimentName]   = useState('');
+  const [experimentTags, setExperimentTags]   = useState('');
+  const [experimentMemo, setExperimentMemo]   = useState('');
+  const [files, setFiles]                     = useState<Record<SlotKey, AscFileState>>({
+    t0: EMPTY_FILE, t1: EMPTY_FILE, t2: EMPTY_FILE, t3: EMPTY_FILE,
+  });
+  const [submitting, setSubmitting]           = useState(false);
+  const [submitResult, setSubmitResult]       = useState<ExperimentCreateResponse | null>(null);
+  const [submitError, setSubmitError]         = useState<string | null>(null);
+
+  // ─── 목록 로드 ─────────────────────────────────────────────────────────────
+
+  const loadExperiments = useCallback(async () => {
+    setListLoading(true);
+    try {
+      setExperiments(await getExperiments());
+    } catch {
+      // silent
+    } finally {
+      setListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExperiments();
+  }, [loadExperiments]);
+
+  // ─── Run 펼치기/접기 ───────────────────────────────────────────────────────
+
+  const toggleRuns = async (expId: number) => {
+    if (expandedId === expId) {
+      setExpandedId(null);
       setRuns([]);
       return;
     }
-    setExpandedExperiment(experimentId);
+    setExpandedId(expId);
     setRunsLoading(true);
     try {
-      const data = await getExperimentRuns(experimentId);
-      setRuns(data);
-    } catch (err) {
-      console.error('Failed to load runs:', err);
+      setRuns(await getExperimentRuns(expId));
+    } catch {
+      setRuns([]);
     } finally {
       setRunsLoading(false);
     }
   };
 
-  // ─── File Upload Handler ───────────────────────────────────
+  // ─── 파일 변경 핸들러 ──────────────────────────────────────────────────────
 
-  const handleFileChange = async (
-    timeLabel: 't0' | 't1' | 't2' | 't3',
-    file: File | null
-  ) => {
+  const handleFile = async (slotKey: SlotKey, file: File | null) => {
     if (!file) {
-      if (timeLabel === 't0') setAscFileT0({ file: null, filename: null, timestamp: null, fileData: null });
-      if (timeLabel === 't1') setAscFileT1({ file: null, filename: null, timestamp: null, fileData: null });
-      if (timeLabel === 't2') setAscFileT2({ file: null, filename: null, timestamp: null, fileData: null });
-      if (timeLabel === 't3') setAscFileT3({ file: null, filename: null, timestamp: null, fileData: null });
+      setFiles(prev => ({ ...prev, [slotKey]: EMPTY_FILE }));
       return;
     }
-
-    const base64 = await fileToBase64(file);
-    const timestamp = calculateTimestamp(runDatetime || new Date().toISOString().replace(/[-T:]/g, '').slice(0, 12) + '00', 0);
-
-    const newState = {
-      file,
-      filename: file.name,
-      timestamp,
-      fileData: base64,
-    };
-
-    if (timeLabel === 't0') setAscFileT0(newState);
-    if (timeLabel === 't1') setAscFileT1(newState);
-    if (timeLabel === 't2') setAscFileT2(newState);
-    if (timeLabel === 't3') setAscFileT3(newState);
+    const slot = FILE_SLOTS.find(s => s.key === slotKey)!;
+    const base = runDatetime ||
+      (() => {
+        const now = new Date();
+        const p = (n: number, l = 2) => String(n).padStart(l, '0');
+        return `${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}`;
+      })();
+    const timestamp = calculateTimestamp(base, slot.offset);
+    const fileData  = await fileToBase64(file);
+    setFiles(prev => ({
+      ...prev,
+      [slotKey]: { file, filename: file.name, timestamp, fileData },
+    }));
   };
 
-  // ─── Create Experiment ───────────────────────────────────
+  // run_datetime이 바뀌면 이미 업로드된 파일들의 timestamp 재계산
+  useEffect(() => {
+    if (!runDatetime) return;
+    setFiles(prev => {
+      const next = { ...prev };
+      (Object.keys(next) as SlotKey[]).forEach(key => {
+        const s = next[key];
+        if (s.file) {
+          const slot = FILE_SLOTS.find(sl => sl.key === key)!;
+          next[key] = { ...s, timestamp: calculateTimestamp(runDatetime, slot.offset) };
+        }
+      });
+      return next;
+    });
+  }, [runDatetime]);
 
-  const handleCreateExperiment = async () => {
+  // ─── 폼 제출 ───────────────────────────────────────────────────────────────
+
+  const handleSubmit = async () => {
     if (!runDatetime) {
-      setCreateError('운용시점(run_datetime)을 선택해주세요.');
+      setSubmitError('운용 시점을 선택해주세요.');
       return;
     }
-
-    setCreateError(null);
-    setCreateLoading(true);
-
+    setSubmitError(null);
+    setSubmitting(true);
     try {
-      const selectedSteps = forecastSteps
+      const steps = forecastSteps
         .split(',')
         .map(s => parseInt(s.trim()))
-        .filter(n => !isNaN(n) && n >= 10 && n <= 180);
+        .filter(n => !isNaN(n) && n >= 10 && n <= 180 && n % 10 === 0);
 
-      const body = {
-        run_datetime: runDatetime,
+      const result = await createExperiment({
+        run_datetime:          runDatetime,
         input_files: {
-          file_t0: ascFileT0.file
-            ? { filename: ascFileT0.filename, timestamp: ascFileT0.timestamp, file_data: ascFileT0.fileData }
-            : null,
-          file_t1: ascFileT1.file
-            ? { filename: ascFileT1.filename, timestamp: ascFileT1.timestamp, file_data: ascFileT1.fileData }
-            : null,
-          file_t2: ascFileT2.file
-            ? { filename: ascFileT2.filename, timestamp: ascFileT2.timestamp, file_data: ascFileT2.fileData }
-            : null,
-          file_t3: ascFileT3.file
-            ? { filename: ascFileT3.filename, timestamp: ascFileT3.timestamp, file_data: ascFileT3.fileData }
-            : null,
+          file_t0: { filename: files.t0.filename, timestamp: files.t0.timestamp, file_data: files.t0.fileData },
+          file_t1: { filename: files.t1.filename, timestamp: files.t1.timestamp, file_data: files.t1.fileData },
+          file_t2: { filename: files.t2.filename, timestamp: files.t2.timestamp, file_data: files.t2.fileData },
+          file_t3: { filename: files.t3.filename, timestamp: files.t3.timestamp, file_data: files.t3.fileData },
         },
-        model_version: modelVersion,
-        forecast_steps: selectedSteps.length > 0 ? selectedSteps : [60],
+        model_version:         modelVersion,
+        forecast_steps:        steps.length > 0 ? steps : null,
         include_preview_image: includePreview,
-        experiment_name: experimentName || null,
-        experiment_tags: experimentTags
+        experiment_name:       experimentName || null,
+        experiment_tags:       experimentTags
           ? experimentTags.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10)
           : null,
-        experiment_memo: experimentMemo || null,
-      };
-
-      const result = await createExperiment(body);
-      setCreateResult({ id: result.id, name: result.name, message: result.message || '실험이 생성되었습니다.' });
-
+        experiment_memo:       experimentMemo || null,
+      });
+      setSubmitResult(result);
       // 폼 초기화
       setRunDatetime('');
       setExperimentName('');
       setExperimentTags('');
       setExperimentMemo('');
-      setAscFileT0({ file: null, filename: null, timestamp: null, fileData: null });
-      setAscFileT1({ file: null, filename: null, timestamp: null, fileData: null });
-      setAscFileT2({ file: null, filename: null, timestamp: null, fileData: null });
-      setAscFileT3({ file: null, filename: null, timestamp: null, fileData: null });
-
-      // 목록 새로고침
+      setFiles({ t0: EMPTY_FILE, t1: EMPTY_FILE, t2: EMPTY_FILE, t3: EMPTY_FILE });
       await loadExperiments();
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : '실험 생성에 실패했습니다.');
+      setSubmitError(err instanceof Error ? err.message : '실험 생성에 실패했습니다.');
     } finally {
-      setCreateLoading(false);
+      setSubmitting(false);
     }
   };
 
-  // ─── Render ──────────────────────────────────────────
-
-  const statusColors: Record<string, string> = {
-    RUNNING: 'bg-green-100 text-green-800',
-    COMPLETED: 'bg-blue-100 text-blue-800',
-    FAILED: 'bg-red-100 text-red-800',
-    QUEUED: 'bg-yellow-100 text-yellow-800',
-    PENDING: 'bg-gray-100 text-gray-800',
+  const switchToCreate = () => {
+    setActiveView('create');
+    setSubmitResult(null);
+    setSubmitError(null);
   };
 
-  const statusColorsDark: Record<string, string> = {
-    RUNNING: 'bg-green-900/30 text-green-400',
-    COMPLETED: 'bg-blue-900/30 text-blue-400',
-    FAILED: 'bg-red-900/30 text-red-400',
-    QUEUED: 'bg-yellow-900/30 text-yellow-400',
-    PENDING: 'bg-gray-800 text-gray-400',
-  };
-
-  // Forecast step options (10~180, step 10)
-  const forecastStepOptions = [];
-  for (let i = 10; i <= 180; i += 10) {
-    forecastStepOptions.push(i);
-  }
+  // ─── 렌더 ─────────────────────────────────────────────────────────────────
 
   if (activeView === 'create') {
-    return (
-      <Layout>
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="mb-8">
-            <button
-              onClick={() => setActiveView('list')}
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 mb-4"
-            >
-              ← 실험 목록
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              새 실험 생성
-            </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              ASC 파일과 실험 파라미터를 입력하여 새로운 모델 실험을 생성합니다.
-            </p>
-          </div>
-
-          {/* Create Form */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-              기본 설정
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              {/* Run Datetime */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  운용시점 (Run Datetime) *
-                </label>
-                <input
-                  type="datetime-local"
-                  value={runDatetime ? runDatetime.replace(/\d{2}$/, '') : ''}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      const d = new Date(e.target.value);
-                      const pad = (n: number) => String(n).padStart(2, '0');
-                      const formatted = `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}`;
-                      setRunDatetime(formatted);
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-                {runDatetime && (
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    형식: {runDatetime}
-                  </p>
-                )}
-              </div>
-
-              {/* Model Version */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  모델 버전 (Model Version)
-                </label>
-                <select
-                  value={modelVersion}
-                  onChange={(e) => setModelVersion(e.target.value as 'v2' | 'v3')}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="v2">v2</option>
-                  <option value="v3">v3 (기본값)</option>
-                </select>
-              </div>
-
-              {/* Forecast Steps */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  예측 선행시간 (Forecast Steps, 분 단위, 쉼표 구분)
-                </label>
-                <input
-                  type="text"
-                  value={forecastSteps}
-                  onChange={(e) => setForecastSteps(e.target.value)}
-                  placeholder="예: 10,20,30 또는 60"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  10~180 사이의 값, 10의 배수 (예: {forecastStepOptions.slice(0, 6).join(', ')}, ...)
-                </p>
-              </div>
-
-              {/* Include Preview Image */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  PNG 미리보기 포함
-                </label>
-                <select
-                  value={includePreview ? 'true' : 'false'}
-                  onChange={(e) => setIncludePreview(e.target.value === 'true')}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="true">예 (기본값)</option>
-                  <option value="false">아니오</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Experiment Info */}
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              실험 정보
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  실험 이름 (최대 100자)
-                </label>
-                <input
-                  type="text"
-                  value={experimentName}
-                  onChange={(e) => setExperimentName(e.target.value)}
-                  maxLength={100}
-                  placeholder="예: 2026-06-04 10:00 강우 실험"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  실험 태그 (최대 10개, 쉼표 구분)
-                </label>
-                <input
-                  type="text"
-                  value={experimentTags}
-                  onChange={(e) => setExperimentTags(e.target.value)}
-                  placeholder="예: 강우, 산만, 실시간"
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                실험 메모 (최대 1000자)
-              </label>
-              <textarea
-                value={experimentMemo}
-                onChange={(e) => setExperimentMemo(e.target.value)}
-                maxLength={1000}
-                rows={3}
-                placeholder="실험에 대한 상세 메모를 입력하세요."
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none"
-              />
-            </div>
-          </div>
-
-          {/* ASC File Uploads */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-              ASC 파일 업로드 (T0~T3)
-            </h2>
-
-            {[
-              { label: 'T0 (기준)', state: ascFileT0, setter: setAscFileT0, index: 0 },
-              { label: 'T+1시간', state: ascFileT1, setter: setAscFileT1, index: 1 },
-              { label: 'T+2시간', state: ascFileT2, setter: setAscFileT2, index: 2 },
-              { label: 'T+3시간', state: ascFileT3, setter: setAscFileT3, index: 3 },
-            ].map(({ label, state, index }) => (
-              <div key={index} className="mb-4 last:mb-0">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    {label}
-                  </label>
-                  {state.file && (
-                    <button
-                      onClick={() => handleFileChange(['t0','t1','t2','t3'][index] as 't0' | 't1' | 't2' | 't3', null)}
-                      className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400"
-                    >
-                      삭제
-                    </button>
-                  )}
-                </div>
-                <input
-                  type="file"
-                  accept=".asc,.txt,.csv,.json,.xml,.yaml,.yml,.dat"
-                  onChange={(e) => handleFileChange(['t0','t1','t2','t3'][index] as 't0' | 't1' | 't2' | 't3', e.target.files?.[0] || null)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-400 dark:hover:file:bg-blue-900/50"
-                />
-                {state.file && (
-                  <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    <div>파일: {state.filename}</div>
-                    <div>타임스탬프: {state.timestamp}</div>
-                    <div>크기: {(state.file.size / 1024).toFixed(1)} KB</div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Error & Result */}
-          {createError && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
-              {createError}
-            </div>
-          )}
-
-          {createResult && (
-            <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-              <h3 className="font-semibold text-green-800 dark:text-green-400">실험 생성 성공</h3>
-              <p className="text-green-700 dark:text-green-300 mt-1">
-                실험 ID: <strong>{createResult.id}</strong> | 이름: {createResult.name}
-              </p>
-              <p className="text-green-600 dark:text-green-400 text-sm mt-1">
-                {createResult.message}
-              </p>
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="flex justify-end gap-4">
-            <button
-              onClick={() => setActiveView('list')}
-              className="px-6 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              취소
-            </button>
-            <button
-              onClick={handleCreateExperiment}
-              disabled={createLoading || !runDatetime}
-              className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-            >
-              {createLoading ? '생성 중...' : '실험 생성'}
-            </button>
-          </div>
-        </div>
-      </Layout>
-    );
+    return <CreateView
+      runDatetime={runDatetime}      setRunDatetime={setRunDatetime}
+      modelVersion={modelVersion}    setModelVersion={setModelVersion}
+      forecastSteps={forecastSteps}  setForecastSteps={setForecastSteps}
+      includePreview={includePreview} setIncludePreview={setIncludePreview}
+      experimentName={experimentName} setExperimentName={setExperimentName}
+      experimentTags={experimentTags} setExperimentTags={setExperimentTags}
+      experimentMemo={experimentMemo} setExperimentMemo={setExperimentMemo}
+      files={files}
+      onFile={handleFile}
+      submitting={submitting}
+      submitResult={submitResult}
+      submitError={submitError}
+      onSubmit={handleSubmit}
+      onCancel={() => setActiveView('list')}
+    />;
   }
-
-  // ─── List View ──────────────────────────────────────────
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-              모델 실험
-            </h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              머신러닝 모델 학습 실험을 관리하고 모니터링합니다.
-            </p>
-          </div>
-          <button
-            onClick={() => {
-              setActiveView('create');
-              setCreateResult(null);
-              setCreateError(null);
-            }}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium"
-          >
-            + 새 실험
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">실험 관리</h1>
+          <p className="text-sm text-gray-500 mt-0.5">QPE 모델 추론 실험을 생성하고 결과를 확인합니다.</p>
+        </div>
+        <button
+          onClick={switchToCreate}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
+        >
+          + 새 실험
+        </button>
+      </div>
+
+      {/* 목록 */}
+      {listLoading ? (
+        <div className="flex items-center justify-center py-16 text-gray-400">로딩 중...</div>
+      ) : experiments.length === 0 ? (
+        <div className="text-center py-16">
+          <p className="text-gray-400 mb-4">등록된 실험이 없습니다.</p>
+          <button onClick={switchToCreate} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
+            첫 번째 실험 시작하기
           </button>
         </div>
-
-        {/* Loading */}
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-          </div>
-        )}
-
-        {/* Experiment List */}
-        {!loading && experiments.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400">등록된 실험이 없습니다.</p>
-          </div>
-        )}
-
-        {!loading && experiments.length > 0 && (
-          <div className="space-y-4">
-            {experiments.map((exp) => (
+      ) : (
+        <div className="space-y-3">
+          {experiments.map(exp => (
+            <div key={exp.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              {/* 실험 헤더 */}
               <div
-                key={exp.id}
-                className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
+                className="p-5 cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => toggleRuns(exp.id)}
               >
-                {/* Experiment Header */}
-                <div
-                  className="p-5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
-                  onClick={() => loadRuns(exp.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                          {exp.name}
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          ID: {exp.id}
-                          {exp.description && (
-                            <span className="ml-2">{exp.description}</span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {exp.created_at && (
-                        <span className="text-sm text-gray-400 dark:text-gray-500">
-                          {exp.created_at.replace('T', ' ')}
-                        </span>
-                      )}
-                      <span className="text-gray-400 dark:text-gray-500 text-xl">
-                        {expandedExperiment === exp.id ? '▲' : '▼'}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{exp.name}</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      ID: {exp.id}
+                      {exp.description && <span className="ml-2">{exp.description}</span>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {exp.created_at && (
+                      <span className="text-xs text-gray-400">
+                        {new Date(exp.created_at).toLocaleString('ko-KR', {
+                          month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
                       </span>
-                    </div>
+                    )}
+                    <span className="text-gray-400 text-sm">{expandedId === exp.id ? '▲' : '▼'}</span>
                   </div>
                 </div>
+              </div>
 
-                {/* Runs (Expanded) */}
-                {expandedExperiment === exp.id && (
-                  <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-850">
-                    {runsLoading ? (
-                      <div className="flex items-center justify-center py-6">
-                        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    ) : runs.length === 0 ? (
-                      <div className="p-4 text-center text-sm text-gray-400 dark:text-gray-500">
-                        실행 기록이 없습니다.
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {runs.map((run) => (
-                          <div key={run.id} className="p-4 flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                Run #{run.id}
-                              </p>
-                              {run.training_job_id && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  Training Job: {run.training_job_id}
-                                </p>
-                              )}
+              {/* Run 목록 (펼침) */}
+              {expandedId === exp.id && (
+                <div className="border-t border-gray-100 bg-gray-50">
+                  {runsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : runs.length === 0 ? (
+                    <p className="p-4 text-center text-sm text-gray-400">실행 기록이 없습니다.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-200">
+                      {runs.map(run => (
+                        <div key={run.id} className="px-5 py-3 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {run.run_name ?? `Run #${run.id}`}
+                            </p>
+                            <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
+                              {run.job_id   && <span>Job #{run.job_id}</span>}
+                              {run.version  && <span>v{run.version}</span>}
+                              {run.mode     && <span>{run.mode}</span>}
                               {run.started_at && (
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  시작: {run.started_at.replace('T', ' ')}
-                                </p>
+                                <span>
+                                  {new Date(run.started_at).toLocaleString('ko-KR', {
+                                    month: '2-digit', day: '2-digit',
+                                    hour: '2-digit', minute: '2-digit',
+                                  })}
+                                </span>
+                              )}
+                              {run.duration_seconds != null && (
+                                <span>{run.duration_seconds}초</span>
                               )}
                             </div>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                statusColors[run.status.toUpperCase()] ||
-                                (run.status.includes('success') || run.status.includes('completed')
-                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400')
-                              }`}
-                            >
-                              {run.status}
-                            </span>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
+                          <StatusBadge status={run.status} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Layout>
+  );
+}
+
+// ─── 실험 생성 폼 ─────────────────────────────────────────────────────────────
+
+interface CreateViewProps {
+  runDatetime: string;      setRunDatetime: (v: string) => void;
+  modelVersion: 'v2' | 'v3'; setModelVersion: (v: 'v2' | 'v3') => void;
+  forecastSteps: string;    setForecastSteps: (v: string) => void;
+  includePreview: boolean;  setIncludePreview: (v: boolean) => void;
+  experimentName: string;   setExperimentName: (v: string) => void;
+  experimentTags: string;   setExperimentTags: (v: string) => void;
+  experimentMemo: string;   setExperimentMemo: (v: string) => void;
+  files: Record<SlotKey, AscFileState>;
+  onFile: (key: SlotKey, file: File | null) => void;
+  submitting: boolean;
+  submitResult: ExperimentCreateResponse | null;
+  submitError: string | null;
+  onSubmit: () => void;
+  onCancel: () => void;
+}
+
+function CreateView({
+  runDatetime, setRunDatetime,
+  modelVersion, setModelVersion,
+  forecastSteps, setForecastSteps,
+  includePreview, setIncludePreview,
+  experimentName, setExperimentName,
+  experimentTags, setExperimentTags,
+  experimentMemo, setExperimentMemo,
+  files, onFile,
+  submitting, submitResult, submitError,
+  onSubmit, onCancel,
+}: CreateViewProps) {
+
+  const inputCls = 'w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none';
+  const sectionCls = 'bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-5';
+  const labelCls = 'block text-sm font-medium text-gray-700 mb-1.5';
+
+  return (
+    <Layout>
+      <div className="max-w-3xl mx-auto">
+        {/* 헤더 */}
+        <div className="mb-6">
+          <button onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-700 mb-3 flex items-center gap-1">
+            ← 실험 목록
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">새 실험 생성</h1>
+          <p className="text-sm text-gray-500 mt-1">관측 파일과 파라미터를 입력하여 QPE 추론 실험을 시작합니다.</p>
+        </div>
+
+        {/* 성공 메시지 */}
+        {submitResult && (
+          <div className="mb-5 p-4 bg-green-50 border border-green-200 rounded-xl">
+            <p className="font-semibold text-green-800">실험 등록 완료</p>
+            <p className="text-sm text-green-700 mt-1">
+              Job #{submitResult.job_id} · 대기 순서: {submitResult.queue_position}번째
+            </p>
+            <p className="text-xs text-green-600 mt-1">{submitResult.message}</p>
           </div>
         )}
+
+        {/* 에러 메시지 */}
+        {submitError && (
+          <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            {submitError}
+          </div>
+        )}
+
+        {/* 섹션 1: 운용 시점 및 모델 설정 */}
+        <div className={sectionCls}>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">운용 시점 및 모델 설정</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>
+                운용 시점 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="datetime-local"
+                value={runDatetime
+                  ? `${runDatetime.slice(0,4)}-${runDatetime.slice(4,6)}-${runDatetime.slice(6,8)}T${runDatetime.slice(8,10)}:${runDatetime.slice(10,12)}`
+                  : ''}
+                onChange={e => {
+                  if (!e.target.value) { setRunDatetime(''); return; }
+                  const d = new Date(e.target.value);
+                  const p = (n: number) => String(n).padStart(2, '0');
+                  setRunDatetime(
+                    `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`
+                  );
+                }}
+                className={inputCls}
+              />
+              {runDatetime && (
+                <p className="mt-1 text-xs text-gray-400">형식: {runDatetime}</p>
+              )}
+            </div>
+            <div>
+              <label className={labelCls}>모델 버전</label>
+              <div className="flex gap-2">
+                {(['v2', 'v3'] as const).map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setModelVersion(v)}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition ${
+                      modelVersion === v
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {v === 'v3' ? 'v3 (기본값)' : 'v2'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 섹션 2: 관측 파일 업로드 */}
+        <div className={sectionCls}>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">관측 파일 업로드 (QPE .asc)</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                4개 시점의 강수량 관측 파일을 업로드합니다. 운용 시점 기준으로 타임스탬프가 자동 계산됩니다.
+              </p>
+            </div>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+              {Object.values(files).filter(f => f.file).length} / 4
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {FILE_SLOTS.map(slot => (
+              <FileCard
+                key={slot.key}
+                label={slot.label}
+                sublabel={slot.sublabel}
+                state={files[slot.key]}
+                disabled={submitting}
+                onFile={file => onFile(slot.key, file)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* 섹션 3: 예측 설정 */}
+        <div className={sectionCls}>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">예측 설정</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>
+                예측 선행시간 (분, 쉼표 구분)
+              </label>
+              <input
+                type="text"
+                value={forecastSteps}
+                onChange={e => setForecastSteps(e.target.value)}
+                placeholder="예: 10,20,30,60"
+                className={inputCls}
+              />
+              <div className="flex gap-1.5 mt-2 flex-wrap">
+                {['10,20,30', '30,60,90', '60,120,180', '10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180'].map((preset, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setForecastSteps(preset)}
+                    className="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600"
+                  >
+                    {i < 3 ? preset : '전체'}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-gray-400">10~180 사이 10의 배수. 비워두면 전체 선행시간 계산.</p>
+            </div>
+            <div>
+              <label className={labelCls}>PNG 미리보기 이미지 포함</label>
+              <div className="flex gap-2">
+                {[true, false].map(v => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    onClick={() => setIncludePreview(v)}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition ${
+                      includePreview === v
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {v ? '포함 (기본값)' : '제외'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 섹션 4: 실험 정보 (선택) */}
+        <div className={sectionCls}>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">
+            실험 정보
+            <span className="ml-2 text-xs font-normal text-gray-400">선택 사항</span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className={labelCls}>실험 이름 (최대 100자)</label>
+              <input
+                type="text"
+                value={experimentName}
+                onChange={e => setExperimentName(e.target.value)}
+                maxLength={100}
+                placeholder="예: 2026-06-05 10:00 실험"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>태그 (쉼표 구분, 최대 10개)</label>
+              <input
+                type="text"
+                value={experimentTags}
+                onChange={e => setExperimentTags(e.target.value)}
+                placeholder="예: 강우, 실시간, 검증"
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>메모 (최대 1000자)</label>
+            <textarea
+              value={experimentMemo}
+              onChange={e => setExperimentMemo(e.target.value)}
+              maxLength={1000}
+              rows={3}
+              placeholder="실험에 대한 메모를 입력하세요."
+              className={`${inputCls} resize-none`}
+            />
+          </div>
+        </div>
+
+        {/* 제출 버튼 */}
+        <div className="flex justify-end gap-3 pb-8">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitting || !runDatetime}
+            className="px-6 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+          >
+            {submitting ? '등록 중...' : '실험 시작'}
+          </button>
+        </div>
       </div>
     </Layout>
   );

@@ -48,18 +48,24 @@ export interface Experiment {
 export interface ExperimentRun {
   id: number;
   experiment_id: number;
-  training_job_id: number | null;
-  status: string;
-  metrics: Record<string, unknown> | null;
+  job_id: number | null;
+  run_name: string | null;
+  version: string | null;
+  mode: string | null;
+  status: string | null;
   parameters: Record<string, unknown> | null;
+  metrics: Record<string, unknown> | null;
+  created_by: string | null;
   started_at: string | null;
   finished_at: string | null;
+  duration_seconds: number | null;
+  created_at: string;
 }
 
 export interface Artifact {
   id: number;
   run_id: number;
-  name: string;
+  file_name: string;
   file_path: string;
   file_size: number | null;
   artifact_type: string;
@@ -71,7 +77,7 @@ export interface ModelVersion {
   experiment_id: number;
   run_id: number | null;
   model_name: string;
-  version: number;
+  version: string;
   status: string;
   metrics: Record<string, unknown> | null;
   model_path: string | null;
@@ -79,19 +85,20 @@ export interface ModelVersion {
 }
 
 export interface GpuInfo {
-  id: number;
+  index: number;
   name: string;
-  utilization: number;
-  memory_used: number;
-  memory_total: number;
-  temperature: number;
+  utilization_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  memory_free_mb: number;
+  temperature_c: number | null;
 }
 
 export interface SystemStatus {
   available: boolean;
   gpu_count: number;
   gpus: GpuInfo[];
-  hostname: string;
+  error: string | null;
 }
 
 export interface LoginResponse {
@@ -156,7 +163,16 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    throw new Error(`API Error: ${res.status} ${res.statusText} (${url})`);
+    if (res.status === 401) {
+      if (typeof window !== 'undefined') window.location.href = '/login';
+      throw new Error('인증이 필요합니다. 다시 로그인해주세요.');
+    }
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((d: { msg: string }) => d.msg).join(', ')
+      : (detail ?? `${res.status} ${res.statusText}`);
+    throw new Error(message);
   }
   return res.json();
 }
@@ -175,11 +191,21 @@ export async function getTrainings(): Promise<TrainingJob[]> {
 }
 
 export async function createTraining(body: {
-  user_name: string;
-  experiment_name: string;
-  mode: string;
-  parameters: Record<string, unknown>;
-  output_dir?: string;
+  user_name?: string | null;
+  experiment_name?: string | null;
+  run_datetime?: string | null;
+  model_version?: string | null;
+  forecast_steps?: number[] | null;
+  include_preview_image?: boolean | null;
+  experiment_tags?: string[] | null;
+  experiment_memo?: string | null;
+  output_dir?: string | null;
+  input_files: {
+    file_t0: AscFileInput;
+    file_t1: AscFileInput;
+    file_t2: AscFileInput;
+    file_t3: AscFileInput;
+  };
 }): Promise<{ job_id: number; status: string; queue_position: number; message: string }> {
   return request<{ job_id: number; status: string; queue_position: number; message: string }>('/trainings', {
     method: 'POST',
@@ -208,26 +234,26 @@ export interface AscFileInput {
 }
 
 export interface ExperimentCreateRequest {
-  run_datetime: string;                // YYYMMDDHHmm 형식 (예: "202606041000")
+  run_datetime: string | null;
   input_files: {
-    file_t0: AscFileInput | null;
-    file_t1: AscFileInput | null;
-    file_t2: AscFileInput | null;
-    file_t3: AscFileInput | null;
+    file_t0: AscFileInput;
+    file_t1: AscFileInput;
+    file_t2: AscFileInput;
+    file_t3: AscFileInput;
   };
-  model_version: 'v2' | 'v3' | null;  // 모델 버전, 기본값 "v3"
-  forecast_steps: number[] | null;     // 예측 선행시간 (분 단위, 10~180 사이 10의 배수)
-  include_preview_image: boolean | null; // PNG 미리보기 포함 여부, 기본값 true
-  experiment_name: string | null;      // 실험 이름 (최대 100자)
-  experiment_tags: string[] | null;    // 실험 태그 목록 (최대 10개)
-  experiment_memo: string | null;      // 실험 메모 (최대 1000자)
+  model_version: 'v2' | 'v3' | null;
+  forecast_steps: number[] | null;
+  include_preview_image: boolean | null;
+  experiment_name: string | null;
+  experiment_tags: string[] | null;
+  experiment_memo: string | null;
 }
 
 export interface ExperimentCreateResponse {
-  id: number;
-  name: string;
+  job_id: number;
   status: string;
-  message?: string;
+  queue_position: number;
+  message: string;
 }
 
 export async function getExperiments(): Promise<Experiment[]> {
@@ -243,17 +269,13 @@ export async function getExperimentRuns(id: number): Promise<ExperimentRun[]> {
 }
 
 export async function createExperiment(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
-  return request<ExperimentCreateResponse>('/experiments', {
+  return request<ExperimentCreateResponse>('/trainings', {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 // ─── Runs ─────────────────────────────────────────────────────────────────────
-
-export async function getRuns(): Promise<ExperimentRun[]> {
-  return request<ExperimentRun[]>('/runs');
-}
 
 export async function getRun(id: number): Promise<ExperimentRun> {
   return request<ExperimentRun>(`/runs/${id}`);

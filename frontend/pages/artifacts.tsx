@@ -71,7 +71,7 @@ export default function Artifacts() {
               {artifacts.map((a) => (
                 <div key={a.id} className="p-3 border rounded hover:bg-gray-50">
                   <div className="flex justify-between">
-                    <span className="font-medium">{a.name}</span>
+                    <span className="font-medium">{a.file_name}</span>
                     <span className={`text-xs ${artifactTypeColor(a.artifact_type)}`}>{a.artifact_type}</span>
                   </div>
                   <div className="text-xs text-gray-400 mt-1">

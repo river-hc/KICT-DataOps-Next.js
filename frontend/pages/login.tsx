@@ -2,7 +2,6 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -44,7 +43,6 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         {/* 로고 */}
         <div className="text-center mb-8">
-          <div className="text-5xl mb-3">⚡</div>
           <h1 className="text-2xl font-bold text-gray-800">DataOps Platform</h1>
           <p className="text-gray-500 mt-1">AI 모델 학습 및 결과 관리 플랫폼</p>
         </div>

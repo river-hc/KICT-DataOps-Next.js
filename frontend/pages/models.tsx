@@ -13,9 +13,9 @@ export default function Models() {
   }, []);
 
   const statusColor = (s: string) => {
-    if (s === 'deployed') return 'text-green-600';
-    if (s === 'staging') return 'text-blue-600';
-    if (s === 'archived') return 'text-gray-600';
+    if (s === 'SELECTED') return 'text-green-600';
+    if (s === 'CREATED') return 'text-blue-600';
+    if (s === 'ARCHIVED') return 'text-gray-500';
     return 'text-gray-600';
   };
 

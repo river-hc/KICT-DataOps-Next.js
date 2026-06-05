@@ -7,17 +7,17 @@ import { usePathname } from 'next/navigation';
 interface NavItem {
   name: string;
   href: string;
-  icon: string;
+  abbr: string;
 }
 
 const navItems: NavItem[] = [
-  { name: '대시보드', href: '/', icon: '📊' },
-  { name: '학습 관리', href: '/trainings', icon: '🚀' },
-  { name: '실험 관리', href: '/experiments', icon: '🧪' },
-  { name: '학습 결과', href: '/runs', icon: '📋' },
-  { name: '아티팩트', href: '/artifacts', icon: '📁' },
-  { name: '모델 레지스트리', href: '/models', icon: '🗂️' },
-  { name: '시스템', href: '/system', icon: '🖥️' },
+  { name: '대시보드', href: '/', abbr: 'D' },
+  { name: '학습 관리', href: '/trainings', abbr: 'T' },
+  { name: '실험 관리', href: '/experiments', abbr: 'E' },
+  { name: '학습 결과', href: '/runs', abbr: 'R' },
+  { name: '아티팩트', href: '/artifacts', abbr: 'A' },
+  { name: '모델 레지스트리', href: '/models', abbr: 'M' },
+  { name: '시스템', href: '/system', abbr: 'S' },
 ];
 
 interface LayoutProps {
@@ -29,7 +29,7 @@ export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* 사이드바 */}
       <aside
         className={`${
@@ -42,8 +42,7 @@ export default function Layout({ children }: LayoutProps) {
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="w-full flex items-center justify-center gap-2 text-blue-600 font-bold text-lg hover:text-blue-800 transition"
           >
-            <span className="text-2xl">⚡</span>
-            {sidebarOpen && <span className="truncate">DataOps</span>}
+            {sidebarOpen ? <span className="truncate">DataOps</span> : <span>DO</span>}
           </button>
         </div>
 
@@ -61,7 +60,7 @@ export default function Layout({ children }: LayoutProps) {
                     : 'text-gray-700 hover:bg-gray-100'
                 }`}
               >
-                <span className="text-xl">{item.icon}</span>
+                <span className="w-6 text-center text-sm font-semibold">{sidebarOpen ? '' : item.abbr}</span>
                 {sidebarOpen && <span className="text-sm">{item.name}</span>}
               </Link>
             );

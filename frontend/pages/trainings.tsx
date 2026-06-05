@@ -6,36 +6,35 @@ import { getTrainings, createTraining, type TrainingJob } from '../lib/api';
 
 export default function Trainings() {
   const [trainings, setTrainings] = useState<TrainingJob[]>([]);
-  const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [experimentName, setExperimentName] = useState('');
   const [mode, setMode] = useState<'single' | 'multi'>('single');
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
-  const refresh = () => getTrainings().then(setTrainings).finally(() => setLoading(false));
+  const refresh = () => { getTrainings().then(setTrainings); };
   useEffect(() => { refresh(); }, []);
 
   const handleCreate = async () => {
     if (!experimentName) return;
-    await createTraining({ 
+    await createTraining({
       user_name: userName || 'admin',
-      experiment_name: experimentName, 
-      mode,
-      parameters: {} 
+      experiment_name: experimentName,
+      input_files: {
+        file_t0: { filename: null, timestamp: null, file_data: null },
+        file_t1: { filename: null, timestamp: null, file_data: null },
+        file_t2: { filename: null, timestamp: null, file_data: null },
+        file_t3: { filename: null, timestamp: null, file_data: null },
+      },
     });
     setExperimentName('');
     refresh();
   };
 
-  const handleControl = async (id: number, action: string) => {
-    refresh();
-  };
-
   const statusColor = (s: string) => {
-    if (s === 'running') return 'text-green-600';
-    if (s === 'failed') return 'text-red-600';
-    if (s === 'pending' || s === 'queued') return 'text-yellow-600';
-    if (s === 'completed') return 'text-blue-600';
+    if (s === 'RUNNING') return 'text-green-600';
+    if (s === 'FAILED' || s === 'CANCELED') return 'text-red-600';
+    if (s === 'QUEUED') return 'text-yellow-600';
+    if (s === 'COMPLETED') return 'text-blue-600';
     return 'text-gray-600';
   };
 
@@ -77,9 +76,8 @@ export default function Trainings() {
           <thead className="bg-gray-50">
             <tr>
               <th className="text-left p-3">ID</th>
-              <th className="text-left p-3">이름</th>
-              <th className="text-left p-3">trainer</th>
-              <th className="text-left p-3">GPU</th>
+              <th className="text-left p-3">실험명</th>
+              <th className="text-left p-3">모드</th>
               <th className="text-left p-3">상태</th>
               <th className="text-left p-3">작성일</th>
               <th className="text-left p-3">작업</th>
@@ -98,13 +96,13 @@ export default function Trainings() {
                 <td className={`p-3 font-medium ${statusColor(t.status)}`}>{t.status}</td>
                 <td className="p-3 text-gray-500">{t.created_at?.slice(0, 10)}</td>
                 <td className="p-3">
-                  {t.status === 'running' && (
-                    <button onClick={(e) => { e.stopPropagation(); handleControl(t.job_id, 'stop'); }} className="text-red-600 hover:underline text-xs mr-2">
+                  {t.status === 'RUNNING' && (
+                    <button onClick={(e) => { e.stopPropagation(); refresh(); }} className="text-red-600 hover:underline text-xs mr-2">
                       정지
                     </button>
                   )}
-                  {(t.status === 'completed' || t.status === 'failed') && (
-                    <button onClick={(e) => { e.stopPropagation(); handleControl(t.job_id, 'reset'); }} className="text-yellow-600 hover:underline text-xs">
+                  {(t.status === 'COMPLETED' || t.status === 'FAILED') && (
+                    <button onClick={(e) => { e.stopPropagation(); refresh(); }} className="text-yellow-600 hover:underline text-xs">
                       재설정
                     </button>
                   )}
