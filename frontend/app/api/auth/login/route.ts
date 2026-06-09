@@ -1,11 +1,4 @@
-// Next.js API Route for authentication proxy
-// Since the backend doesn't have auth endpoints, we use a simple local authentication approach
-
-export const config = {
-  api: {
-    bodyParser: true,
-  },
-};
+import { NextResponse } from 'next/server';
 
 interface LoginRequest {
   username: string;
@@ -22,24 +15,19 @@ interface LoginResponse {
 const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'admin';
 const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || 'admin123';
 
-export default function handler(req: any, res: any) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ detail: 'Method not allowed' });
-  }
-
-  const body: LoginRequest = req.body;
+export async function POST(req: Request) {
+  const body = (await req.json()) as LoginRequest;
 
   // Simple authentication (for development/demo purposes)
   if (body.username === DEFAULT_USERNAME && body.password === DEFAULT_PASSWORD) {
     const token = Buffer.from(`${body.username}:${Date.now()}`).toString('base64');
-    
-    // Set cookie as well
-    res.status(200).json({
+
+    return NextResponse.json({
       access_token: token,
       token_type: 'bearer',
       username: body.username,
     } as LoginResponse);
-  } else {
-    res.status(401).json({ detail: 'Invalid credentials' });
   }
+
+  return NextResponse.json({ detail: 'Invalid credentials' }, { status: 401 });
 }

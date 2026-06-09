@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Layout from '../lib/Layout';
-import { getTrainings, getArtifactsByRun, type TrainingJob, type Artifact } from '../lib/api';
+import Layout from '@/lib/Layout';
+import { getTrainings, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
 
 const ARTIFACT_TYPE_STYLE: Record<string, string> = {
   model:   'bg-violet-100 text-violet-700',

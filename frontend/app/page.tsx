@@ -3,17 +3,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ReactNode } from 'react';
 import Link from 'next/link';
-import Layout from '../lib/Layout';
-import AscViewer from '../lib/AscViewer';
-import DashboardExplorer from '../lib/DashboardExplorer';
-import DashboardKanban   from '../lib/DashboardKanban';
+import Layout from '@/lib/Layout';
+import AscViewer from '@/lib/AscViewer';
+import DashboardExplorer from '@/lib/DashboardExplorer';
+import DashboardKanban   from '@/lib/DashboardKanban';
 import {
   getTrainings,
   getSystemStatus,
   type TrainingJob,
   type SystemStatus,
-} from '../lib/api';
-import type { MockDetail } from '../lib/mockData';
+} from '@/lib/api';
+import type { MockDetail } from '@/lib/mockData';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
 
@@ -452,6 +452,127 @@ function JobAccordion({
   );
 }
 
+// ─── 도넛 차트 ────────────────────────────────────────────────────────────────
+
+const DONUT_SEGS: { key: TabKey; label: string; color: string }[] = [
+  { key: 'RUNNING',   label: '실행 중', color: '#10b981' },
+  { key: 'QUEUED',    label: '대기 중', color: '#f59e0b' },
+  { key: 'COMPLETED', label: '완료',    color: '#0ea5e9' },
+  { key: 'FAILED',    label: '실패',    color: '#ef4444' },
+];
+
+function StatusDonutChart({
+  trainings,
+  activeTab,
+  onTabChange,
+}: {
+  trainings: TrainingJob[];
+  activeTab: TabKey;
+  onTabChange: (key: TabKey) => void;
+}) {
+  const [progress,   setProgress]   = useState(0);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const DURATION = 1400;
+    let startTs: number | null = null;
+    let raf: number;
+    function tick(now: number) {
+      if (startTs === null) startTs = now;
+      const t     = Math.min((now - startTs) / DURATION, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setProgress(eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const counts: Record<TabKey, number> = {
+    RUNNING:   trainings.filter(t => t.status === 'RUNNING').length,
+    QUEUED:    trainings.filter(t => t.status === 'QUEUED').length,
+    COMPLETED: trainings.filter(t => t.status === 'COMPLETED').length,
+    FAILED:    trainings.filter(t => t.status === 'FAILED' || t.status === 'CANCELED').length,
+  };
+  const total = trainings.length;
+  const R = 80, SW = 20, C = 2 * Math.PI * R, CX = 108, CY = 108;
+
+  let cumFrac = 0;
+  const arcs = DONUT_SEGS.map(seg => {
+    const count    = counts[seg.key];
+    const frac     = total > 0 ? count / total : 0;
+    const segStart = cumFrac;
+    const segEnd   = cumFrac + frac;
+    const visible  = Math.max(0, Math.min(progress, segEnd) - segStart);
+    const pct      = total > 0 ? Math.round((count / total) * 100) : 0;
+    cumFrac        = segEnd;
+    return { ...seg, count, dash: visible * C, offset: -segStart * C, pct };
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+      <div className="flex flex-col items-center px-4 py-4 gap-3 flex-1 justify-center">
+        <svg viewBox="0 0 216 216" className="w-full max-w-[148px]">
+          <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={SW} />
+          {arcs.filter(a => a.count > 0).map(a => {
+            const isActive  = activeTab === a.key;
+            const isHovered = hoveredKey === a.key;
+            return (
+              <circle
+                key={a.key}
+                cx={CX} cy={CY} r={R}
+                fill="none"
+                stroke={a.color}
+                strokeWidth={isActive ? SW + 3 : SW}
+                strokeDasharray={`${a.dash} ${C - a.dash}`}
+                strokeDashoffset={a.offset}
+                transform={`rotate(-90 ${CX} ${CY})`}
+                strokeLinecap="butt"
+                onClick={() => onTabChange(a.key)}
+                onMouseEnter={() => setHoveredKey(a.key)}
+                onMouseLeave={() => setHoveredKey(null)}
+                style={{
+                  cursor: 'pointer',
+                  opacity: isHovered && !isActive ? 0.7 : 1,
+                  transition: 'stroke-width 0.15s, opacity 0.15s',
+                }}
+              />
+            );
+          })}
+          <text x={CX} y={CY - 10} textAnchor="middle" fontSize="30" fontWeight="800" fill="#111827">{total}</text>
+          <text x={CX} y={CY + 14} textAnchor="middle" fontSize="12" fill="#9ca3af">전체 잡</text>
+        </svg>
+
+        <div className="w-full grid grid-cols-2 gap-x-3 gap-y-2">
+          {arcs.map(a => {
+            const isActive = activeTab === a.key;
+            return (
+              <div
+                key={a.key}
+                className={`flex flex-col items-center gap-0.5 rounded-lg p-1.5 cursor-pointer transition-colors ${
+                  isActive ? 'bg-gray-100' : 'hover:bg-gray-50'
+                }`}
+                onClick={() => onTabChange(a.key)}
+              >
+                <div className="flex items-center gap-1.5 w-full">
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: a.color }} />
+                  <span className={`text-xs truncate ${isActive ? 'font-semibold text-gray-700' : 'text-gray-500'}`}>
+                    {a.label}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1 w-full pl-4">
+                  <span className="text-base font-bold tabular-nums" style={{ color: a.color }}>{a.count}</span>
+                  <span className="text-xs text-gray-400 tabular-nums">{a.pct}%</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── 성능 추이 차트 ────────────────────────────────────────────────────────────
 
 const CHART_PTS = [
@@ -627,32 +748,23 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* 상태 카드 2×2 + 성능 추이 차트 */}
+      {/* 도넛 차트 + 성능 추이 차트 */}
       <div className="flex gap-4 mb-6 items-stretch">
 
-        {/* 왼쪽: 2×2 상태 카드 */}
-        <div className="grid grid-cols-2 gap-3 flex-shrink-0 w-56">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => { setActiveTab(tab.key); setOpenJobId(null); }}
-              className={`bg-white rounded-xl p-3 text-left transition-all hover:shadow-md border-2 ${
-                activeTab === tab.key
-                  ? `${tab.cardBorder} shadow-md`
-                  : 'border-gray-100 shadow-sm'
-              }`}
-            >
-              <div className="text-xs font-medium text-gray-500 mb-1.5">{tab.label}</div>
-              <div className={`text-2xl font-bold ${grouped[tab.key].length > 0 ? tab.text : 'text-gray-300'}`}>
-                {grouped[tab.key].length}
-              </div>
-            </button>
-          ))}
+        {/* 왼쪽: 상태 도넛 차트 */}
+        <div className="flex-shrink-0 w-56">
+          <StatusDonutChart
+            trainings={trainings}
+            activeTab={activeTab}
+            onTabChange={key => { setActiveTab(key); setOpenJobId(null); }}
+          />
         </div>
 
-        {/* 오른쪽: 성능 추이 차트 */}
-        <div className="flex-1 min-w-0">
-          <PerfLineChart />
+        {/* 오른쪽: 성능 추이 차트 (70% 폭) */}
+        <div className="flex-1 min-w-0 flex items-stretch">
+          <div className="w-[70%]">
+            <PerfLineChart />
+          </div>
         </div>
 
       </div>
@@ -699,9 +811,6 @@ function Dashboard() {
         </div>
       )}
 
-      <div className="mt-6">
-        <PerfHistoryTable />
-      </div>
     </Layout>
   );
 }

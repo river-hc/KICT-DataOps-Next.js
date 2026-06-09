@@ -70,39 +70,17 @@ interface NavGroup {
 type NavEntry = NavItem | NavGroup;
 
 const navItems: NavEntry[] = [
-  { name: '대시보드',        href: '/',                   icon: Icons.dashboard  },
-  { name: '실험 관리',       href: '/experiments',        icon: Icons.experiment },
-  { name: '실험 결과',       href: '/experiment-results', icon: Icons.expResults },
-  {
-    type: 'group',
-    name: '학습',
-    icon: Icons.training,
-    children: [
-      { name: '학습 관리', href: '/trainings', icon: Icons.training  },
-      { name: '학습 결과', href: '/runs',      icon: Icons.results   },
-      { name: '아티팩트',  href: '/artifacts', icon: Icons.artifacts },
-    ],
-  },
-  { name: '모델 레지스트리', href: '/models',              icon: Icons.models     },
-  { name: '시스템',          href: '/system',              icon: Icons.system     },
+  { name: '대시보드',        href: '/',           icon: Icons.dashboard  },
+  { name: '실험 / 학습',     href: '/experiments', icon: Icons.experiment },
+  { name: '모델 레지스트리', href: '/models',      icon: Icons.models     },
+  { name: '시스템',          href: '/system',      icon: Icons.system     },
 ];
 
 const modernNavItems: NavEntry[] = [
-  { name: '대시보드',        href: '/',            icon: Icons.dashboard  },
-  { name: '실험 관리',      href: '/experiments',        icon: Icons.experiment  },
-  { name: '실험 결과',      href: '/experiment-results', icon: Icons.expResults  },
-  {
-    type: 'group',
-    name: '학습',
-    icon: Icons.training,
-    children: [
-      { name: '학습 관리', href: '/trainings', icon: Icons.training  },
-      { name: '학습 결과', href: '/runs',      icon: Icons.results   },
-      { name: '아티팩트',  href: '/artifacts', icon: Icons.artifacts },
-    ],
-  },
-  { name: '모델 레지스트리', href: '/models', icon: Icons.models },
-  { name: '시스템',          href: '/system', icon: Icons.system },
+  { name: '대시보드',        href: '/',           icon: Icons.dashboard  },
+  { name: '실험 / 학습',     href: '/experiments', icon: Icons.experiment },
+  { name: '모델 레지스트리', href: '/models',      icon: Icons.models     },
+  { name: '시스템',          href: '/system',      icon: Icons.system     },
 ];
 
 interface LayoutProps {

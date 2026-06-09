@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
-import Layout from '../lib/Layout';
+import { Suspense, useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Layout from '@/lib/Layout';
 import {
   getTrainings, getTrainingLogs, createTraining,
   fileToBase64, calculateTimestamp,
   type TrainingJob,
-} from '../lib/api';
+} from '@/lib/api';
 
 const POLL_MS    = 3000;
 const ALL_STEPS  = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
@@ -381,8 +381,8 @@ function TrainingModal({
 
 // ─── 페이지 ───────────────────────────────────────────────────────────────────
 
-export default function Trainings() {
-  const router    = useRouter();
+function TrainingsContent() {
+  const searchParams = useSearchParams();
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const [trainings,    setTrainings]    = useState<TrainingJob[]>([]);
@@ -404,9 +404,9 @@ export default function Trainings() {
   useEffect(() => { refresh(); }, []);
 
   useEffect(() => {
-    if (router.isReady && router.query.status)
-      setStatusFilter((router.query.status as string).toUpperCase());
-  }, [router.isReady, router.query.status]);
+    const status = searchParams.get('status');
+    if (status) setStatusFilter(status.toUpperCase());
+  }, [searchParams]);
 
   const hasActive = trainings.some(t => ['RUNNING', 'QUEUED'].includes(t.status.toUpperCase()));
 
@@ -640,3 +640,10 @@ export default function Trainings() {
   );
 }
 
+export default function Trainings() {
+  return (
+    <Suspense fallback={null}>
+      <TrainingsContent />
+    </Suspense>
+  );
+}

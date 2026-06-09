@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import Layout from '../lib/Layout';
-import { MOCK_TRAINING_RUNS, type MockTrainingRun, fmtDateTime } from '../lib/mockData';
+import Layout from '@/lib/Layout';
+import { MOCK_TRAINING_RUNS, type MockTrainingRun, fmtDateTime } from '@/lib/mockData';
 
 // ─── 유틸 ─────────────────────────────────────────────────────────────────────
 

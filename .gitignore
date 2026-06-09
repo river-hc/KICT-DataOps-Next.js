@@ -20,8 +20,8 @@ CLAUDE.md
 .claude/
 
 # 실행 산출물
-runs/
-mlruns/
+/runs/
+/mlruns/
 
 # DB 데이터
 postgres-data/
@@ -40,7 +40,6 @@ frontend/.next/
 frontend/.env*
 frontend/next-env.d.ts
 frontend/package-lock.json
-frontend/app/
 
 # ASC 임시 데이터 (테스트용 원시 파일, 배포 제외)
 frontend/asc_data/

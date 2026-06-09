@@ -1,15 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import Layout from '../lib/Layout';
-import { getTrainings, type TrainingJob } from '../lib/api';
+import { useRouter } from 'next/navigation';
+import Layout from '@/lib/Layout';
+import { getTrainings, type TrainingJob } from '@/lib/api';
 import {
   MOCK_TRAININGS,
   MOCK_DETAILS,
   fmtDateTime,
   fmtDuration,
-} from '../lib/mockData';
+} from '@/lib/mockData';
 
 const METRIC_META: Record<string, { label: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    max: 6, higherBetter: false },

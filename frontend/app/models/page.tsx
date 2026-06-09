@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Layout from '../lib/Layout';
-import { getModels, type ModelVersion } from '../lib/api';
+import Layout from '@/lib/Layout';
+import { getModels, type ModelVersion } from '@/lib/api';
 
 const STATUS_STYLE: Record<string, string> = {
   SELECTED: 'bg-emerald-100 text-emerald-800',

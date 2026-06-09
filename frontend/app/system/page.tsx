@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Layout from '../lib/Layout';
-import { getSystemStatus, type SystemStatus } from '../lib/api';
+import Layout from '@/lib/Layout';
+import { getSystemStatus, type SystemStatus } from '@/lib/api';
 
 export default function System() {
   const [system, setSystem]   = useState<SystemStatus | null>(null);

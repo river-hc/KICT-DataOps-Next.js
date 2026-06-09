@@ -1,16 +1,16 @@
 'use client';
 
-import { useRouter } from 'next/router';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import Layout from '../../lib/Layout';
-import AscViewer from '../../lib/AscViewer';
+import Layout from '@/lib/Layout';
+import AscViewer from '@/lib/AscViewer';
 import {
   MOCK_TRAININGS,
   MOCK_DETAILS,
   fmtDateTime,
   fmtDuration,
   fmtRunDatetime,
-} from '../../lib/mockData';
+} from '@/lib/mockData';
 
 // ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
@@ -50,14 +50,14 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 export default function ExperimentResultDetail() {
-  const router  = useRouter();
-  const { id }  = router.query;
+  const params  = useParams<{ id: string }>();
+  const { id }  = params;
   const jobId   = typeof id === 'string' ? parseInt(id, 10) : null;
 
   const job    = jobId != null ? MOCK_TRAININGS.find(j => j.job_id === jobId) ?? null : null;
   const detail = jobId != null ? (MOCK_DETAILS[jobId] ?? null) : null;
 
-  if (jobId == null || (!job && router.isReady)) {
+  if (jobId == null || !job) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center py-24 text-gray-400">
