@@ -20,6 +20,25 @@ export interface AscGrid {
 
 // ─── ASC 파서 ─────────────────────────────────────────────────────────────────
 
+export function renderToCanvas(canvas: HTMLCanvasElement, grid: AscGrid) {
+  const { ncols, nrows, nodata } = grid.header;
+  canvas.width  = ncols;
+  canvas.height = nrows;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const img = ctx.createImageData(ncols, nrows);
+  const px  = img.data;
+  for (let i = 0; i < grid.data.length; i++) {
+    const [r, g, b, a] = precipToRgba(grid.data[i], nodata);
+    px[i * 4] = r; px[i * 4 + 1] = g; px[i * 4 + 2] = b; px[i * 4 + 3] = a;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+export function generateMockGrid(step: number): AscGrid {
+  return _generateMockGrid(step);
+}
+
 export function parseAsc(text: string): AscGrid {
   const lines = text.trim().split(/\r?\n/);
   const raw: Record<string, number> = {};
@@ -60,7 +79,7 @@ export function parseAsc(text: string): AscGrid {
 
 // ─── 모의 격자 생성 ───────────────────────────────────────────────────────────
 
-function generateMockGrid(step: number): AscGrid {
+function _generateMockGrid(step: number): AscGrid {
   const ncols = 120;
   const nrows = 120;
   const t = step / 180;
@@ -95,7 +114,7 @@ function generateMockGrid(step: number): AscGrid {
   }
 
   return {
-    header: { ncols, nrows, xllcorner: 124.0, yllcorner: 33.0, cellsize: 0.01, nodata: -9999 },
+    header: { ncols, nrows, xllcorner: 124.5, yllcorner: 33.0, cellsize: 0.05, nodata: -9999 },
     data,
   };
 }
@@ -129,28 +148,99 @@ const COLORBAR: { label: string; color: string }[] = [
   { label: '50+', color: 'rgb(180,0,180)' },
 ];
 
-// ─── Canvas 렌더러 ────────────────────────────────────────────────────────────
+// ─── 한반도 지형 오버레이 ──────────────────────────────────────────────────────
 
-function renderToCanvas(canvas: HTMLCanvasElement, grid: AscGrid) {
-  const { ncols, nrows, nodata } = grid.header;
-  // 캔버스 크기를 격자와 일치시킴 (CSS가 표시 크기를 조정)
-  canvas.width  = ncols;
-  canvas.height = nrows;
+function geoToPixel(lat: number, lon: number, h: AscHeader): [number, number] {
+  const col = (lon - h.xllcorner) / h.cellsize;
+  const row = h.nrows - 1 - (lat - h.yllcorner) / h.cellsize;
+  return [col, row];
+}
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+// 한반도 해안선 좌표 [위도, 경도] — 시계방향
+const KOREA_MAINLAND: [number, number][] = [
+  // 북한 북서부 (그리드 상단 → 남하)
+  [39.0, 124.9], [38.8, 125.1], [38.5, 125.2], [38.2, 125.5],
+  [38.0, 125.9],
+  // 서해안 (남하)
+  [37.9, 126.6], [37.6, 126.5], [37.3, 126.3], [36.9, 126.4],
+  [36.5, 126.5], [36.1, 126.4], [35.7, 126.4], [35.3, 126.1],
+  [35.0, 126.3], [34.7, 126.5],
+  // 남해안 (동진)
+  [34.4, 126.9], [34.3, 127.2], [34.3, 127.5], [34.4, 127.8],
+  [34.6, 128.0], [34.8, 128.3], [34.7, 128.7],
+  // 동해안 (북상)
+  [35.1, 129.0], [35.5, 129.4], [36.0, 129.5], [36.5, 129.5],
+  [37.0, 129.4], [37.5, 129.1], [37.9, 128.8],
+  // 비무장지대 동쪽 → 북한 동해안
+  [38.2, 128.5], [38.6, 128.2], [38.9, 127.4], [39.0, 127.4],
+];
 
-  const img = ctx.createImageData(ncols, nrows);
-  const px  = img.data;
+const JEJU_ISLAND: [number, number][] = [
+  [33.5, 126.3], [33.3, 126.6], [33.2, 127.0],
+  [33.3, 127.5], [33.5, 127.7], [33.6, 127.3],
+  [33.6, 126.8], [33.5, 126.3],
+];
 
-  for (let i = 0; i < grid.data.length; i++) {
-    const [r, g, b, a] = precipToRgba(grid.data[i], nodata);
-    px[i * 4]     = r;
-    px[i * 4 + 1] = g;
-    px[i * 4 + 2] = b;
-    px[i * 4 + 3] = a;
-  }
-  ctx.putImageData(img, 0, 0);
+function KoreaOverlay({ header }: { header: AscHeader }) {
+  const { ncols, nrows, xllcorner, yllcorner, cellsize } = header;
+  // 격자가 도(degree) 단위가 아니면 오버레이 불가
+  if (cellsize >= 1) return null;
+
+  const xmax = xllcorner + ncols * cellsize;
+  const ymax = yllcorner + nrows * cellsize;
+
+  const tp = (lat: number, lon: number) => {
+    const [c, r] = geoToPixel(lat, lon, header);
+    return `${c.toFixed(2)},${r.toFixed(2)}`;
+  };
+
+  // 위도·경도 격자선 (1° 간격)
+  const latLines: number[] = [];
+  for (let lat = Math.ceil(yllcorner); lat <= Math.floor(ymax); lat++) latLines.push(lat);
+  const lonLines: number[] = [];
+  for (let lon = Math.ceil(xllcorner); lon <= Math.floor(xmax); lon++) lonLines.push(lon);
+
+  const mainPts = KOREA_MAINLAND.map(([la, lo]) => tp(la, lo)).join(' ');
+  const jejuPts = JEJU_ISLAND.map(([la, lo]) => tp(la, lo)).join(' ');
+
+  return (
+    <>
+      {/* 위도 격자선 */}
+      {latLines.map(lat => {
+        const [, row] = geoToPixel(lat, xllcorner, header);
+        return (
+          <g key={`lat${lat}`}>
+            <line x1={0} y1={row} x2={ncols} y2={row}
+              stroke="rgba(255,255,255,0.18)" strokeWidth={0.35} strokeDasharray="1.5,2" />
+            <text x={1.5} y={row - 0.8} fill="rgba(255,255,255,0.45)"
+              fontSize={3.5} fontFamily="monospace">{lat}°N</text>
+          </g>
+        );
+      })}
+
+      {/* 경도 격자선 */}
+      {lonLines.map(lon => {
+        const [col] = geoToPixel(yllcorner, lon, header);
+        return (
+          <g key={`lon${lon}`}>
+            <line x1={col} y1={0} x2={col} y2={nrows}
+              stroke="rgba(255,255,255,0.18)" strokeWidth={0.35} strokeDasharray="1.5,2" />
+            <text x={col + 0.8} y={nrows - 1.5} fill="rgba(255,255,255,0.45)"
+              fontSize={3.5} fontFamily="monospace">{lon}°E</text>
+          </g>
+        );
+      })}
+
+      {/* 한반도 본토 해안선 */}
+      <polyline points={mainPts}
+        fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth={0.7}
+        strokeLinejoin="round" strokeLinecap="round" />
+
+      {/* 제주도 */}
+      <polygon points={jejuPts}
+        fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth={0.55} />
+    </>
+  );
 }
 
 // ─── 통계 ────────────────────────────────────────────────────────────────────
@@ -223,8 +313,8 @@ export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) 
   const grids = useMemo<(AscGrid | null)[]>(() => {
     return steps.map(step => {
       const src = ascTexts?.[step] ?? fetchedRef.current[step];
-      if (src !== undefined) return src.length > 0 ? parseAsc(src) : null;
-      if (!ascUrls) return generateMockGrid(step);
+      if (src !== undefined) return src.length > 0 ? parseAsc(src) : _generateMockGrid(step);
+      if (!ascUrls) return _generateMockGrid(step);
       return null;  // URL 있지만 아직 미로드
     });
     // fetchVer 가 바뀔 때마다 재계산
@@ -264,7 +354,8 @@ export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) 
   const curStep   = steps[frameIdx];
   const curGrid   = grids[frameIdx];
   const isLoading = curGrid === null;
-  const isMock    = !ascUrls && !ascTexts?.[curStep];
+  const isMock    = (!ascUrls && !ascTexts?.[curStep]) ||
+                    (ascUrls != null && fetchedRef.current[curStep] === '');
   const stats     = curGrid ? calcStats(curGrid) : null;
 
   return (
@@ -290,6 +381,18 @@ export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) 
           className="w-full"
           style={{ imageRendering: 'pixelated', display: 'block', height: 'auto' }}
         />
+
+        {/* 한반도 지형 + 격자 오버레이 */}
+        {curGrid && (
+          <svg
+            viewBox={`0 0 ${curGrid.header.ncols} ${curGrid.header.nrows}`}
+            className="absolute inset-0 w-full h-full"
+            style={{ pointerEvents: 'none' }}
+            preserveAspectRatio="none"
+          >
+            <KoreaOverlay header={curGrid.header} />
+          </svg>
+        )}
 
         {/* 로딩 오버레이 */}
         {isLoading && (

@@ -1,0 +1,55 @@
+services:
+
+  # ── Design A: Sidebar + Tabs + Accordion (Light Blue) ─── port 3000
+  frontend-a:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: kict-frontend-a
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # 컨테이너 node_modules 유지
+      - /app/.next          # 컨테이너별 독립 빌드 캐시 (테마 격리)
+    environment:
+      NEXT_PUBLIC_THEME: default
+      BACKEND_URL: http://localhost:8000
+      WATCHPACK_POLLING: "true"
+    restart: unless-stopped
+
+  # ── Design B: Sidebar + List Panel + Detail Panel (Dark Pro) ─── port 3001
+  frontend-b:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: kict-frontend-b
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NEXT_PUBLIC_THEME: dark
+      BACKEND_URL: http://localhost:8000
+      WATCHPACK_POLLING: "true"
+    restart: unless-stopped
+
+  # ── Design C: Top Nav + Kanban + Drawer (Modern Violet) ─── port 3002
+  frontend-c:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: kict-frontend-c
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NEXT_PUBLIC_THEME: modern
+      BACKEND_URL: http://localhost:8000
+      WATCHPACK_POLLING: "true"
+    restart: unless-stopped

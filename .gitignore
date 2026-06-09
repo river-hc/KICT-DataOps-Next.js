@@ -45,3 +45,6 @@ frontend/app/
 # ASC 임시 데이터 (테스트용 원시 파일, 배포 제외)
 frontend/asc_data/
 frontend/public/asc_data/
+
+BACKEND_REQUESTS.md
+API.md

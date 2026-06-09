@@ -1,3 +1,460 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════
+   Layout CSS 변수 — Layout.tsx / LayoutTopNav.tsx 전용
+   !important 오버라이드 없음. 각 디자인 컴포넌트가 직접 Tailwind 클래스 사용.
+══════════════════════════════════════════════════════════ */
+
+/* ── Design A: Light Blue (default) ─────────────────────── */
+:root {
+  --layout-bg:           #f9fafb;
+  --sidebar-bg:          #ffffff;
+  --sidebar-border:      #e5e7eb;
+  --sidebar-text:        #374151;
+  --sidebar-active-bg:   #eff6ff;
+  --sidebar-active-text: #2563eb;
+  --sidebar-hover-bg:    #f3f4f6;
+  --header-bg:           #ffffff;
+  --header-border:       #e5e7eb;
+  --header-text:         #1f2937;
+  --logo-text:           #2563eb;
+  --status-text:         #16a34a;
+}
+
+/* ── Design B: Dark Sidebar + Light Content (dark) ─────── */
+[data-theme="dark"] {
+  --layout-bg:           #f1f5f9;
+  --sidebar-bg:          #1e293b;
+  --sidebar-border:      #334155;
+  --sidebar-text:        #94a3b8;
+  --sidebar-active-bg:   #0f172a;
+  --sidebar-active-text: #38bdf8;
+  --sidebar-hover-bg:    #263347;
+  --header-bg:           #ffffff;
+  --header-border:       #e2e8f0;
+  --header-text:         #0f172a;
+  --logo-text:           #38bdf8;
+  --status-text:         #22c55e;
+}
+
+/* ── Design C: Light (modern) ───────────────────────────── */
+[data-theme="modern"] {
+  --layout-bg:           #f8fafc;
+  --sidebar-bg:          #ffffff;
+  --sidebar-border:      #e2e8f0;
+  --sidebar-text:        #64748b;
+  --sidebar-active-bg:   #f1f5f9;
+  --sidebar-active-text: #7c3aed;
+  --sidebar-hover-bg:    #f1f5f9;
+  --header-bg:           #ffffff;
+  --header-border:       #e2e8f0;
+  --header-text:         #1e293b;
+  --logo-text:           #7c3aed;
+  --status-text:         #059669;
+}
+
+/* nav 링크 hover (인라인 style로 active, CSS로 hover) */
+.theme-nav-link:hover {
+  background-color: var(--sidebar-hover-bg);
+}
+
+/* ══════════════════════════════════════════════════════════
+   Login Page 변수
+══════════════════════════════════════════════════════════ */
+
+:root {
+  --login-bg:         #eff6ff;
+  --login-card-bg:    #ffffff;
+  --login-accent:     #2563eb;
+  --login-text:       #1f2937;
+  --login-muted:      #6b7280;
+  --login-border:     #e5e7eb;
+  --login-input-bg:   #ffffff;
+  --login-input-text: #1f2937;
+}
+
+[data-theme="dark"] {
+  --login-bg:         #0f172a;
+  --login-card-bg:    #1e293b;
+  --login-accent:     #38bdf8;
+  --login-text:       #f1f5f9;
+  --login-muted:      #94a3b8;
+  --login-border:     #334155;
+  --login-input-bg:   #0f172a;
+  --login-input-text: #e2e8f0;
+}
+
+[data-theme="modern"] {
+  --login-bg:         #f5f3ff;
+  --login-card-bg:    #ffffff;
+  --login-accent:     #7c3aed;
+  --login-text:       #1e293b;
+  --login-muted:      #64748b;
+  --login-border:     #e2e8f0;
+  --login-input-bg:   #ffffff;
+  --login-input-text: #1e293b;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 20%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════
+   Port 3002 Top-Nav Dropdown Menu
+   참조: uiverse.io/gharsh11032000 — 테마 변수에 맞게 색상 조정
+══════════════════════════════════════════════════════════ */
+
+.top-menu {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  align-items: stretch;
+}
+
+.top-menu a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.top-menu .top-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 20px;
+  height: 100%;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--sidebar-text);
+  border-bottom: 2px solid transparent;
+  overflow: hidden;
+  transition: color 0.48s cubic-bezier(0.23, 1, 0.32, 1),
+              border-color 0.48s cubic-bezier(0.23, 1, 0.32, 1),
+              border-radius 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font-family: inherit;
+  line-height: inherit;
+}
+
+.top-menu .top-link::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--sidebar-active-text);
+  z-index: -1;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.top-menu .top-link svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  transition: transform 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.top-menu .top-link.is-active {
+  color: var(--sidebar-active-text);
+  border-bottom-color: var(--sidebar-active-text);
+}
+
+/* 단일 링크 hover */
+.top-menu .top-item:not(.has-submenu):hover .top-link {
+  color: var(--sidebar-active-text);
+  border-bottom-color: var(--sidebar-active-text);
+}
+
+/* 드롭다운 있는 항목 hover */
+.top-menu .top-item.has-submenu:hover .top-link {
+  color: #ffffff;
+  border-bottom-color: transparent;
+  border-radius: 14px 14px 0 0;
+  overflow: visible;
+}
+
+.top-menu .top-item.has-submenu:hover .top-link::after {
+  transform: scaleX(1);
+  transform-origin: right;
+}
+
+.top-menu .top-item.has-submenu:hover .top-link svg {
+  transform: rotate(-180deg);
+  stroke: #ffffff;
+}
+
+/* 드롭다운 패널 */
+.top-menu .top-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.top-menu .top-submenu {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 200px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 0 0 16px 16px;
+  overflow: hidden;
+  border: 1px solid var(--header-border);
+  border-top: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: opacity  0.48s cubic-bezier(0.23, 1, 0.32, 1),
+              visibility 0.48s cubic-bezier(0.23, 1, 0.32, 1),
+              transform  0.48s cubic-bezier(0.23, 1, 0.32, 1);
+  z-index: 50;
+  pointer-events: none;
+  background: var(--header-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+}
+
+.top-menu .top-item.has-submenu:hover .top-submenu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+  border-color: var(--sidebar-active-text);
+}
+
+/* 드롭다운 개별 항목 */
+.top-submenu .top-submenu-item {
+  width: 100%;
+}
+
+.top-submenu .top-submenu-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 20px;
+  width: 100%;
+  position: relative;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--header-text);
+  transition: color 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.top-submenu .top-submenu-link .sub-desc {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--sidebar-text);
+  transition: color 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.top-submenu .top-submenu-link::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--sidebar-active-text);
+  z-index: -1;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.48s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.top-submenu .top-submenu-link:hover::before {
+  transform: scaleX(1);
+  transform-origin: right;
+}
+
+.top-submenu .top-submenu-link:hover,
+.top-submenu .top-submenu-link:hover .sub-desc {
+  color: #ffffff;
+}
+
+/* ══════════════════════════════════════════════════════════
+   User Profile Popup (모든 포트 공통)
+   참조: uiverse.io/Galahhad — checkbox 토글 방식
+══════════════════════════════════════════════════════════ */
+
+.user-popup {
+  display: inline-block;
+  position: relative;
+}
+
+.user-popup input[type="checkbox"] {
+  display: none;
+}
+
+/* 트리거 — 아바타 + 이름 + 화살표 */
+.user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 5px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.user-trigger:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.user-trigger-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--header-text, #1f2937);
+}
+
+/* 화살표 SVG */
+.user-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--sidebar-text, #6b7280);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.user-popup input[type="checkbox"]:checked ~ .user-trigger .user-chevron {
+  transform: rotate(180deg);
+}
+
+/* 외부 클릭 닫기 오버레이 */
+.user-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  cursor: default;
+}
+
+.user-popup input[type="checkbox"]:checked ~ .user-overlay {
+  display: block;
+}
+
+/* 팝업 창 */
+.user-window {
+  transform: scale(0.9);
+  transform-origin: top right;
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: unset;
+  min-width: 220px;
+  padding: 6px;
+  background: var(--header-bg, #ffffff);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--header-border, #e5e7eb);
+  transition: all 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+  z-index: 200;
+  pointer-events: none;
+}
+
+.user-popup input[type="checkbox"]:checked ~ .user-window {
+  transform: scale(1);
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 사용자 정보 섹션 */
+.user-info-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+.user-info-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-info-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.user-info-role {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+/* 구분선 */
+.user-window hr {
+  margin: 4px 0;
+  border: none;
+  border-bottom: 1px solid var(--header-border, #e5e7eb);
+}
+
+/* 메뉴 목록 */
+.user-window ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 메뉴 항목 (label을 버튼처럼 사용 — 클릭 시 팝업 닫힘) */
+.user-window-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.user-window-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.user-window-btn:hover {
+  background: var(--sidebar-active-text, #2563eb);
+  color: #ffffff;
+}
+
+.user-window-btn.logout-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+}

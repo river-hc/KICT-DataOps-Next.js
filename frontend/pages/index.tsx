@@ -2,30 +2,32 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ReactNode } from 'react';
+import Link from 'next/link';
 import Layout from '../lib/Layout';
 import AscViewer from '../lib/AscViewer';
+import DashboardExplorer from '../lib/DashboardExplorer';
+import DashboardKanban   from '../lib/DashboardKanban';
 import {
   getTrainings,
   getSystemStatus,
   type TrainingJob,
   type SystemStatus,
 } from '../lib/api';
+import type { MockDetail } from '../lib/mockData';
+
+// ─── 테마 분기 ────────────────────────────────────────────────────────────────
+
+const THEME = process.env.NEXT_PUBLIC_THEME;
+
+export default function Page() {
+  if (THEME === 'dark')   return <DashboardExplorer />;
+  if (THEME === 'modern') return <DashboardKanban />;
+  return <Dashboard />;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabKey = 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
-
-interface MockDetail {
-  params: {
-    model_version: string;
-    forecast_steps: number[];
-    include_preview_image: boolean;
-    run_datetime: string;
-  };
-  metrics: Record<string, number> | null;
-  error?: string;
-  ascUrls?: Record<number, string>;
-}
 
 // ─── 탭 설정 ──────────────────────────────────────────────────────────────────
 
@@ -340,58 +342,109 @@ function JobAccordion({
             />
           </div>
 
-          {/* 학습 일정 + 모델 설정 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InfoCard title="학습 일정">
-              <InfoRow label="등록 시각" value={fmtDateTime(job.created_at)} />
-              <InfoRow label="시작 시각" value={fmtDateTime(job.started_at)} />
-              <InfoRow label="완료 시각" value={fmtDateTime(job.finished_at)} />
-            </InfoCard>
+          {/* COMPLETED + ASC: 왼쪽 ASC 뷰어 / 오른쪽 실험 정보 2컬럼 */}
+          {s === 'COMPLETED' && detail?.params.include_preview_image && detail?.ascUrls ? (
+            <div className="grid grid-cols-[3fr_7fr] gap-5">
 
-            {detail && (
-              <InfoCard title="모델 설정">
-                <InfoRow label="모델 버전"     value={detail.params.model_version} />
-                <InfoRow label="운용 시점"     value={fmtRunDatetime(detail.params.run_datetime)} />
-                <InfoRow label="예측 선행시간" value={detail.params.forecast_steps.map(n => `${n}분`).join(', ')} />
-                <InfoRow label="미리보기 이미지" value={detail.params.include_preview_image ? '포함' : '제외'} />
-              </InfoCard>
-            )}
-          </div>
+              {/* 왼쪽: ASC 뷰어 (전체 높이 표시) */}
+              <div>
+                <AscViewer steps={detail.params.forecast_steps} ascUrls={detail.ascUrls} />
+              </div>
 
-          {/* 성능 지표 */}
-          {detail?.metrics && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
-              <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
-                {Object.entries(detail.metrics).map(([key, val]) => (
-                  <div key={key} className="bg-white rounded-lg p-3 border border-blue-100 text-center">
-                    <p className="text-xs text-gray-400 font-medium uppercase mb-1">
-                      {key.replace(/_/g, ' ')}
-                    </p>
-                    <p className="text-sm font-bold text-blue-700">{val.toFixed(3)}</p>
+              {/* 오른쪽: 실험 정보 */}
+              <div className="flex flex-col gap-2">
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">학습 일정</p>
+                  <div className="space-y-1.5">
+                    <InfoRow label="등록 시각" value={fmtDateTime(job.created_at)} />
+                    <InfoRow label="시작 시각" value={fmtDateTime(job.started_at)} />
+                    <InfoRow label="완료 시각" value={fmtDateTime(job.finished_at)} />
                   </div>
-                ))}
+                </div>
+                {detail && (
+                  <div className="bg-white rounded-lg border border-gray-200 p-3">
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">모델 설정</p>
+                    <div className="space-y-1.5">
+                      <InfoRow label="모델 버전"       value={detail.params.model_version} />
+                      <InfoRow label="운용 시점"       value={fmtRunDatetime(detail.params.run_datetime)} />
+                      <InfoRow label="미리보기 이미지" value={detail.params.include_preview_image ? '포함' : '제외'} />
+                      <div className="flex justify-between items-start gap-2 pt-0.5">
+                        <span className="text-xs text-gray-500 shrink-0">예측 선행시간</span>
+                        <div className="flex flex-col gap-1 items-end">
+                          {Array.from(
+                            { length: Math.ceil(detail.params.forecast_steps.length / 9) },
+                            (_, i) => detail.params.forecast_steps.slice(i * 9, i * 9 + 9)
+                          ).map((row, ri) => (
+                            <div key={ri} className="flex gap-1">
+                              {row.map(n => (
+                                <span key={n} className="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-medium">{n}분</span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {detail?.metrics && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">성능 지표</p>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {Object.entries(detail.metrics).map(([key, val]) => (
+                        <div key={key} className="bg-white rounded-lg p-2 border border-blue-100 text-center">
+                          <p className="text-[10px] text-gray-400 font-medium uppercase mb-0.5 leading-tight">{key.replace(/_/g, ' ')}</p>
+                          <p className="text-xs font-bold text-blue-700">{val.toFixed(3)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-
-          {/* 예측 슬라이드 (완료된 항목만) */}
-          {detail?.params.include_preview_image && s === 'COMPLETED' && (
-            <AscViewer steps={detail.params.forecast_steps} ascUrls={detail.ascUrls} />
-          )}
-
-          {/* 오류 내용 */}
-          {detail?.error && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">오류 내용</p>
-              <div className={`rounded-lg p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap ${
-                s === 'CANCELED'
-                  ? 'bg-white border border-gray-200 text-gray-600'
-                  : 'bg-red-50 border border-red-100 text-red-700'
-              }`}>
-                {detail.error}
+          ) : (
+            /* 그 외 상태: 기존 세로 레이아웃 */
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InfoCard title="학습 일정">
+                  <InfoRow label="등록 시각" value={fmtDateTime(job.created_at)} />
+                  <InfoRow label="시작 시각" value={fmtDateTime(job.started_at)} />
+                  <InfoRow label="완료 시각" value={fmtDateTime(job.finished_at)} />
+                </InfoCard>
+                {detail && (
+                  <InfoCard title="모델 설정">
+                    <InfoRow label="모델 버전"       value={detail.params.model_version} />
+                    <InfoRow label="운용 시점"       value={fmtRunDatetime(detail.params.run_datetime)} />
+                    <InfoRow label="예측 선행시간"   value={detail.params.forecast_steps.map(n => `${n}분`).join(', ')} />
+                    <InfoRow label="미리보기 이미지" value={detail.params.include_preview_image ? '포함' : '제외'} />
+                  </InfoCard>
+                )}
               </div>
-            </div>
+              {detail?.metrics && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
+                  <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+                    {Object.entries(detail.metrics).map(([key, val]) => (
+                      <div key={key} className="bg-white rounded-lg p-3 border border-blue-100 text-center">
+                        <p className="text-xs text-gray-400 font-medium uppercase mb-1">{key.replace(/_/g, ' ')}</p>
+                        <p className="text-sm font-bold text-blue-700">{val.toFixed(3)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {detail?.error && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">오류 내용</p>
+                  <div className={`rounded-lg p-3 text-xs font-mono leading-relaxed whitespace-pre-wrap ${
+                    s === 'CANCELED'
+                      ? 'bg-white border border-gray-200 text-gray-600'
+                      : 'bg-red-50 border border-red-100 text-red-700'
+                  }`}>
+                    {detail.error}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -399,9 +452,118 @@ function JobAccordion({
   );
 }
 
+// ─── 성능 추이 차트 ────────────────────────────────────────────────────────────
+
+const CHART_PTS = [
+  { label: '06-03', sub: 'v3', mae: 2.18, rmse: 3.87, csi: 0.81 },
+  { label: '06-04', sub: 'v2', mae: 3.01, rmse: 5.44, csi: 0.71 },
+  { label: '06-04', sub: 'v3', mae: 2.34, rmse: 4.12, csi: 0.78 },
+];
+
+function PerfLineChart() {
+  const [hov, setHov] = useState<number | null>(null);
+  const W = 540, H = 90;
+  const p = { t: 8, r: 32, b: 24, l: 42 };
+  const pw = W - p.l - p.r;
+  const ph = H - p.t - p.b;
+  const maxY = 6;
+  const xs    = (i: number) => p.l + (pw / (CHART_PTS.length - 1)) * i;
+  const ys    = (v: number) => p.t + ph - (v / maxY) * ph;
+  const ysCSI = (v: number) => p.t + ph - v * ph;  // CSI: 0–1 → 전체 높이
+  const maePts  = CHART_PTS.map((d, i) => `${xs(i).toFixed(1)},${ys(d.mae).toFixed(1)}`).join(' ');
+  const rmsePts = CHART_PTS.map((d, i) => `${xs(i).toFixed(1)},${ys(d.rmse).toFixed(1)}`).join(' ');
+  const csiPts  = CHART_PTS.map((d, i) => `${xs(i).toFixed(1)},${ysCSI(d.csi).toFixed(1)}`).join(' ');
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">성능 추이</h3>
+          <p className="text-xs text-gray-400 mt-0.5">완료 실험 기준 — API 연동 전 mock</p>
+        </div>
+        <div className="flex gap-4 text-xs text-gray-500">
+          <span className="flex items-center gap-1.5">
+            <svg width="16" height="4" className="flex-shrink-0">
+              <line x1="0" y1="2" x2="16" y2="2" stroke="#3b82f6" strokeWidth="2.5" />
+            </svg>
+            MAE
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="16" height="4" className="flex-shrink-0">
+              <line x1="0" y1="2" x2="16" y2="2" stroke="#fb923c" strokeWidth="2.5" />
+            </svg>
+            RMSE
+          </span>
+          <span className="flex items-center gap-1.5">
+            <svg width="16" height="4" className="flex-shrink-0">
+              <line x1="0" y1="2" x2="16" y2="2" stroke="#10b981" strokeWidth="2.5" />
+            </svg>
+            CSI_10
+          </span>
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ pointerEvents: 'none' }}>
+        {[0, 2, 4, 6].map(v => (
+          <g key={v}>
+            <line x1={p.l} y1={ys(v)} x2={p.l + pw} y2={ys(v)} stroke="#f3f4f6" strokeWidth="1" />
+            <text x={p.l - 8} y={ys(v) + 4} textAnchor="end" fontSize="5" fill="#9ca3af">{v}</text>
+          </g>
+        ))}
+        {/* CSI 우측 축 (0 / 0.5 / 1) */}
+        {([0, 0.5, 1] as number[]).map(v => (
+          <text key={v} x={p.l + pw + 5} y={ysCSI(v) + 4} textAnchor="start" fontSize="5" fill="#10b981">{v}</text>
+        ))}
+        <line x1={p.l} y1={p.t} x2={p.l} y2={p.t + ph} stroke="#e5e7eb" strokeWidth="1" />
+        <line x1={p.l} y1={p.t + ph} x2={p.l + pw} y2={p.t + ph} stroke="#e5e7eb" strokeWidth="1" />
+        <polyline points={rmsePts} stroke="#fb923c" strokeWidth="2" fill="none" strokeLinejoin="round" />
+        <polyline points={maePts}  stroke="#3b82f6" strokeWidth="2" fill="none" strokeLinejoin="round" />
+        <polyline points={csiPts}  stroke="#10b981" strokeWidth="2" fill="none" strokeLinejoin="round" />
+        {CHART_PTS.map((d, i) => (
+          <g key={i} style={{ pointerEvents: 'all', cursor: 'default' }}
+            onMouseEnter={(e) => { e.stopPropagation(); setHov(i); }}
+            onMouseLeave={(e) => { e.stopPropagation(); setHov(null); }}
+          >
+            <rect x={xs(i) - 24} y={p.t} width={48} height={ph} fill="transparent" />
+            <circle cx={xs(i)} cy={ys(d.rmse)}   r={hov === i ? 5 : 3.5} fill="#fb923c" stroke="white" strokeWidth="1.5" />
+            <circle cx={xs(i)} cy={ys(d.mae)}    r={hov === i ? 5 : 3.5} fill="#3b82f6" stroke="white" strokeWidth="1.5" />
+            <circle cx={xs(i)} cy={ysCSI(d.csi)} r={hov === i ? 5 : 3.5} fill="#10b981" stroke="white" strokeWidth="1.5" />
+            <text x={xs(i)} y={H - 16} textAnchor="middle" fontSize="5" fill="#9ca3af">{d.label}</text>
+            <text
+              x={xs(i)} y={H - 3} textAnchor="middle" fontSize="5" fontWeight="600"
+              fill={d.sub === 'v3' ? '#059669' : '#d97706'}
+            >
+              {d.sub}
+            </text>
+          </g>
+        ))}
+      </svg>
+
+      <div className="mt-1 h-8 flex justify-center items-center">
+        {hov !== null && (
+          <div className="flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-1.5 text-xs">
+            <span className="font-semibold text-gray-600">
+              {CHART_PTS[hov].label} ({CHART_PTS[hov].sub})
+            </span>
+            <span className="text-blue-600">
+              MAE <span className="font-mono font-bold">{CHART_PTS[hov].mae}</span>
+            </span>
+            <span className="text-orange-500">
+              RMSE <span className="font-mono font-bold">{CHART_PTS[hov].rmse}</span>
+            </span>
+            <span className="text-emerald-600">
+              CSI <span className="font-mono font-bold">{CHART_PTS[hov].csi}</span>
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export default function Dashboard() {
+function Dashboard() {
   const [trainings, setTrainings]   = useState<TrainingJob[]>([]);
   const [system, setSystem]         = useState<SystemStatus | null>(null);
   const [loading, setLoading]       = useState(true);
@@ -465,24 +627,34 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 요약 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setActiveTab(tab.key); setOpenJobId(null); }}
-            className={`bg-white rounded-xl p-4 text-left transition-all hover:shadow-md border-2 ${
-              activeTab === tab.key
-                ? `${tab.cardBorder} shadow-md`
-                : 'border-gray-100 shadow-sm'
-            }`}
-          >
-            <div className="text-xs font-medium text-gray-500 mb-2">{tab.label}</div>
-            <div className={`text-3xl font-bold ${grouped[tab.key].length > 0 ? tab.text : 'text-gray-300'}`}>
-              {grouped[tab.key].length}
-            </div>
-          </button>
-        ))}
+      {/* 상태 카드 2×2 + 성능 추이 차트 */}
+      <div className="flex gap-4 mb-6 items-stretch">
+
+        {/* 왼쪽: 2×2 상태 카드 */}
+        <div className="grid grid-cols-2 gap-3 flex-shrink-0 w-56">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => { setActiveTab(tab.key); setOpenJobId(null); }}
+              className={`bg-white rounded-xl p-3 text-left transition-all hover:shadow-md border-2 ${
+                activeTab === tab.key
+                  ? `${tab.cardBorder} shadow-md`
+                  : 'border-gray-100 shadow-sm'
+              }`}
+            >
+              <div className="text-xs font-medium text-gray-500 mb-1.5">{tab.label}</div>
+              <div className={`text-2xl font-bold ${grouped[tab.key].length > 0 ? tab.text : 'text-gray-300'}`}>
+                {grouped[tab.key].length}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* 오른쪽: 성능 추이 차트 */}
+        <div className="flex-1 min-w-0">
+          <PerfLineChart />
+        </div>
+
       </div>
 
       {/* 탭 바 */}
@@ -526,6 +698,10 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+
+      <div className="mt-6">
+        <PerfHistoryTable />
+      </div>
     </Layout>
   );
 }
