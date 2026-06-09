@@ -41,9 +41,17 @@ export default function Models() {
   return (
     <Layout>
       {/* 페이지 헤더 */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">모델 레지스트리</h1>
-        <p className="text-sm text-gray-500 mt-0.5">등록된 모델 버전과 배포 상태를 관리합니다.</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">모델 레지스트리</h1>
+          <p className="text-sm text-gray-500 mt-0.5">등록된 모델 버전과 배포 상태를 관리합니다.</p>
+        </div>
+        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          모델 등록
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

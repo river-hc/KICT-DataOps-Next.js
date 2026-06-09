@@ -46,6 +46,13 @@ function fmtDur(start: string | null, end: string | null): string {
   return `${Math.floor(s/3600)}시간 ${Math.floor((s%3600)/60)}분`;
 }
 
+function fmtDt(iso: string | null): string {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('ko-KR', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
 // ─── 상태 배지 ────────────────────────────────────────────────────────────────
 
 const STATUS_CLS: Record<string, string> = {
@@ -416,7 +423,8 @@ function NewTrainingModal({
 // ─── 실험 목록 ────────────────────────────────────────────────────────────────
 
 function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: boolean }) {
-  const [filter, setFilter] = useState('ALL');
+  const [filter,     setFilter]     = useState('ALL');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const filtered = filter === 'ALL'
     ? jobs
@@ -426,10 +434,10 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
       });
 
   const TABS = [
-    { key: 'ALL',       label: '전체',     cls: 'bg-gray-700 text-white' },
-    { key: 'RUNNING',   label: '실행 중',  cls: 'bg-emerald-500 text-white' },
-    { key: 'QUEUED',    label: '대기 중',  cls: 'bg-amber-400 text-white' },
-    { key: 'COMPLETED', label: '완료',     cls: 'bg-blue-500 text-white' },
+    { key: 'ALL',       label: '전체',      cls: 'bg-gray-700 text-white' },
+    { key: 'RUNNING',   label: '실행 중',   cls: 'bg-emerald-500 text-white' },
+    { key: 'QUEUED',    label: '대기 중',   cls: 'bg-amber-400 text-white' },
+    { key: 'COMPLETED', label: '완료',      cls: 'bg-blue-500 text-white' },
     { key: 'FAILED',    label: '실패/취소', cls: 'bg-red-400 text-white' },
   ];
 
@@ -455,19 +463,25 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
       <table className="w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
-            {['ID', '실험명', '모드', '상태', '진행률', '등록일', '소요 시간', '결과'].map(h => (
+            {['ID', '실험명', '모드', '상태', '진행률', '등록일', '소요 시간'].map(h => (
               <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
-          {filtered.map(job => {
-            const s           = job.status.toUpperCase();
-            const isCompleted = s === 'COMPLETED';
-            return (
-              <tr key={job.job_id} className="hover:bg-gray-50 transition-colors">
+        <tbody>
+          {filtered.flatMap(job => {
+            const s          = job.status.toUpperCase();
+            const isSelected = job.job_id === selectedId;
+            const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
+
+            const mainRow = (
+              <tr
+                key={job.job_id}
+                onClick={toggle}
+                className={`cursor-pointer transition-colors border-b border-gray-100 ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+              >
                 <td className="px-5 py-3">
                   <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">#{job.job_id}</span>
                 </td>
@@ -488,16 +502,62 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
                 <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
-                <td className="px-5 py-3">
-                  {isCompleted ? (
-                    <Link href={`/experiment-results/${job.job_id}`}
-                      className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline">
-                      결과 보기
+              </tr>
+            );
+
+            if (!isSelected) return [mainRow];
+
+            const detailRow = (
+              <tr key={`${job.job_id}-detail`}>
+                <td colSpan={7} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mb-3">
+                    {[
+                      { label: '등록일',    value: fmtDt(job.created_at) },
+                      { label: '시작일',    value: fmtDt(job.started_at) },
+                      { label: '완료일',    value: fmtDt(job.finished_at) },
+                      { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
+                      { label: '요청자',    value: job.user_name },
+                      { label: '모드',      value: job.mode },
+                      ...(job.run_id != null ? [{ label: 'Run ID', value: `#${job.run_id}` }] : []),
+                    ].map(row => (
+                      <div key={row.label}>
+                        <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{row.label}</p>
+                        <p className="text-sm text-gray-800">{row.value}</p>
+                      </div>
+                    ))}
+                    {s === 'RUNNING' && job.progress != null && (
+                      <div className="col-span-2">
+                        <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+                          </div>
+                          <span className="text-sm font-bold text-emerald-600 flex-shrink-0">{job.progress}%</span>
+                          {job.current_epoch != null && (
+                            <span className="text-xs text-gray-400 flex-shrink-0">
+                              {job.current_epoch}/{job.total_epochs} epoch
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {s === 'COMPLETED' && (
+                    <Link
+                      href={`/experiment-results/${job.job_id}`}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                    >
+                      결과 상세 보기
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
                     </Link>
-                  ) : <span className="text-xs text-gray-300">—</span>}
+                  )}
                 </td>
               </tr>
             );
+
+            return [mainRow, detailRow];
           })}
         </tbody>
       </table>
@@ -549,114 +609,167 @@ function TrainingContent({
   }, [selectedId, isSelectedRunning]);
 
   return (
-    <>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-          <span className="text-sm font-semibold text-gray-700">학습 목록</span>
-          <div className="flex items-center gap-3">
-            {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-            <button
-              onClick={onRefresh}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              새로고침
-            </button>
-          </div>
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-700">학습 목록</span>
+        <div className="flex items-center gap-3">
+          {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+          <button
+            onClick={onRefresh}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            새로고침
+          </button>
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              {['ID', '실험명', '모드', '상태', '진행률', '등록일', '작업'].map(h => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {jobs.map(job => {
-              const s = job.status.toUpperCase();
-              return (
-                <tr
-                  key={job.job_id}
-                  onClick={() => setSelectedId(prev => prev === job.job_id ? null : job.job_id)}
-                  className={`cursor-pointer transition-colors ${selectedId === job.job_id ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                >
-                  <td className="px-5 py-3">
-                    <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">#{job.job_id}</span>
-                  </td>
-                  <td className="px-5 py-3 font-medium text-gray-800">{job.experiment_name}</td>
-                  <td className="px-5 py-3 text-gray-500">{job.mode}</td>
-                  <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
-                  <td className="px-5 py-3 min-w-[140px]">
-                    {s === 'RUNNING' && job.progress != null ? (
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-500 w-7 text-right flex-shrink-0">{job.progress}%</span>
-                        {job.current_epoch != null && job.total_epochs != null && (
-                          <span className="text-xs text-gray-400 flex-shrink-0">{job.current_epoch}/{job.total_epochs}</span>
-                        )}
-                      </div>
-                    ) : <span className="text-xs text-gray-300">—</span>}
-                  </td>
-                  <td className="px-5 py-3 text-gray-400 text-xs">{job.created_at?.slice(0,10) ?? '-'}</td>
-                  <td className="px-5 py-3">
-                    {s === 'RUNNING' && (
-                      <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-red-600 hover:underline mr-2">
-                        정지
-                      </button>
-                    )}
-                    {(s === 'COMPLETED' || s === 'FAILED') && (
-                      <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-amber-600 hover:underline">
-                        재설정
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {jobs.length === 0 && !loading && (
-          <div className="py-16 text-center text-gray-400 text-sm">등록된 학습이 없습니다.</div>
-        )}
       </div>
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            {['ID', '실험명', '모드', '상태', '진행률', '등록일', '작업'].map(h => (
+              <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.flatMap(job => {
+            const s          = job.status.toUpperCase();
+            const isSelected = selectedId === job.job_id;
+            const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
 
-      {/* 로그 패널 */}
-      {selectedId != null && (
-        <div className="mt-4 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-700 flex items-center gap-3">
-            <span className="text-sm font-semibold text-gray-200 flex-1">
-              로그 — Job #{selectedId}
-              {isSelectedRunning && (
-                <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 font-normal">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  실시간
-                </span>
-              )}
-            </span>
-            {logsLoading && <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
-            <button onClick={() => setSelectedId(null)} className="flex-shrink-0 text-gray-500 hover:text-gray-200 transition-colors">
-              <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-            </button>
-          </div>
-          <div className="p-4 max-h-64 overflow-y-auto font-mono text-xs text-gray-300 leading-5 space-y-px">
-            {logs.length === 0
-              ? <span className="text-gray-500">로그가 없습니다.</span>
-              : logs.map((line, i) => <div key={i}>{line}</div>)
-            }
-            <div ref={logsEndRef} />
-          </div>
-        </div>
+            const mainRow = (
+              <tr
+                key={job.job_id}
+                onClick={toggle}
+                className={`cursor-pointer transition-colors border-b border-gray-100 ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+              >
+                <td className="px-5 py-3">
+                  <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">#{job.job_id}</span>
+                </td>
+                <td className="px-5 py-3 font-medium text-gray-800">{job.experiment_name}</td>
+                <td className="px-5 py-3 text-gray-500">{job.mode}</td>
+                <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
+                <td className="px-5 py-3 min-w-[140px]">
+                  {s === 'RUNNING' && job.progress != null ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-500 w-7 text-right flex-shrink-0">{job.progress}%</span>
+                      {job.current_epoch != null && job.total_epochs != null && (
+                        <span className="text-xs text-gray-400 flex-shrink-0">{job.current_epoch}/{job.total_epochs}</span>
+                      )}
+                    </div>
+                  ) : <span className="text-xs text-gray-300">—</span>}
+                </td>
+                <td className="px-5 py-3 text-gray-400 text-xs">{job.created_at?.slice(0,10) ?? '-'}</td>
+                <td className="px-5 py-3">
+                  {s === 'RUNNING' && (
+                    <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-red-600 hover:underline mr-2">
+                      정지
+                    </button>
+                  )}
+                  {(s === 'COMPLETED' || s === 'FAILED') && (
+                    <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-amber-600 hover:underline">
+                      재설정
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+
+            if (!isSelected) return [mainRow];
+
+            const detailRow = (
+              <tr key={`${job.job_id}-detail`}>
+                <td colSpan={7} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
+                  {/* 학습 상세 정보 */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mb-4">
+                    {[
+                      { label: '등록일',    value: fmtDt(job.created_at) },
+                      { label: '시작일',    value: fmtDt(job.started_at) },
+                      { label: '완료일',    value: fmtDt(job.finished_at) },
+                      { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
+                      { label: '요청자',    value: job.user_name },
+                      { label: '모드',      value: job.mode },
+                      ...(job.run_id != null ? [{ label: 'Run ID', value: `#${job.run_id}` }] : []),
+                    ].map(row => (
+                      <div key={row.label}>
+                        <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{row.label}</p>
+                        <p className="text-sm text-gray-800">{row.value}</p>
+                      </div>
+                    ))}
+                    {s === 'RUNNING' && job.progress != null && (
+                      <div className="col-span-2">
+                        <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+                          </div>
+                          <span className="text-sm font-bold text-emerald-600 flex-shrink-0">{job.progress}%</span>
+                          {job.current_epoch != null && (
+                            <span className="text-xs text-gray-400 flex-shrink-0">
+                              {job.current_epoch}/{job.total_epochs} epoch
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 결과 상세보기 */}
+                  {s === 'COMPLETED' && (
+                    <div className="mb-4">
+                      <Link
+                        href={`/training-results/${job.job_id}`}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                      >
+                        결과 상세 보기
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* 로그 패널 */}
+                  <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-700 flex items-center gap-3">
+                      <span className="text-sm font-semibold text-gray-200 flex-1">
+                        로그 — Job #{job.job_id}
+                        {isSelectedRunning && (
+                          <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 font-normal">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            실시간
+                          </span>
+                        )}
+                      </span>
+                      {logsLoading && <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+                    </div>
+                    <div className="p-4 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 leading-5 space-y-px">
+                      {logs.length === 0
+                        ? <span className="text-gray-500">로그가 없습니다.</span>
+                        : logs.map((line, i) => <div key={i}>{line}</div>)
+                      }
+                      <div ref={logsEndRef} />
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            );
+
+            return [mainRow, detailRow];
+          })}
+        </tbody>
+      </table>
+      {jobs.length === 0 && !loading && (
+        <div className="py-16 text-center text-gray-400 text-sm">등록된 학습이 없습니다.</div>
       )}
-    </>
+    </div>
   );
 }
 

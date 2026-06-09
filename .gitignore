@@ -44,6 +44,8 @@ frontend/package-lock.json
 # ASC 임시 데이터 (테스트용 원시 파일, 배포 제외)
 frontend/asc_data/
 frontend/public/asc_data/
+frontend/app/training-results/
+frontend/public/mock/
 
 BACKEND_REQUESTS.md
 API.md

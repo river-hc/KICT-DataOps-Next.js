@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
 import { getTrainings, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
+import { MOCK_TRAININGS, MOCK_ARTIFACTS } from '@/lib/mockData';
 
 const ARTIFACT_TYPE_STYLE: Record<string, string> = {
   model:   'bg-violet-100 text-violet-700',
@@ -10,10 +11,30 @@ const ARTIFACT_TYPE_STYLE: Record<string, string> = {
   plot:    'bg-emerald-100 text-emerald-700',
 };
 
+const ARTIFACT_TYPE_LABEL: Record<string, string> = {
+  model:   '모델',
+  metrics: '지표',
+  plot:    'ASC',
+};
+
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function handleDownload(a: Artifact) {
+  // /mock/ 경로는 정적 파일 직접 다운로드, 그 외 API 엔드포인트 사용
+  const url = a.file_path.startsWith('/mock/')
+    ? a.file_path
+    : `/api/v1/artifacts/${a.id}/download`;
+  const link = document.createElement('a');
+  link.href     = url;
+  link.download = a.file_name;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export default function Artifacts() {
@@ -26,6 +47,7 @@ export default function Artifacts() {
   useEffect(() => {
     getTrainings()
       .then(data => setTrainings(data))
+      .catch(() => setTrainings(MOCK_TRAININGS))
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,9 +55,10 @@ export default function Artifacts() {
     setSelectedRunId(runId);
     setArtLoading(true);
     try {
-      setArtifacts(await getArtifactsByRun(runId));
+      const data = await getArtifactsByRun(runId);
+      setArtifacts(data);
     } catch {
-      setArtifacts([]);
+      setArtifacts(MOCK_ARTIFACTS[runId] ?? []);
     } finally {
       setArtLoading(false);
     }
@@ -56,36 +79,40 @@ export default function Artifacts() {
 
   return (
     <Layout>
-      {/* 페이지 헤더 */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">아티팩트</h1>
-        <p className="text-sm text-gray-500 mt-0.5">완료된 학습의 모델·지표·이미지 산출물을 확인합니다.</p>
+        <p className="text-sm text-gray-500 mt-0.5">완료된 실험의 모델·지표·강우장 ASC 산출물을 확인하고 다운로드합니다.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-5">
-        {/* 학습 목록 */}
+        {/* 완료된 실험 목록 */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100">
-            <span className="text-sm font-semibold text-gray-700">완료된 학습</span>
-            <span className="ml-2 text-xs text-gray-400">{completed.length}건</span>
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">완료된 실험</span>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completed.length}건</span>
           </div>
-          <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
             {completed.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 학습이 없습니다.</p>
+              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 실험이 없습니다.</p>
             ) : (
               completed.map(t => (
                 <div
                   key={t.job_id}
                   onClick={() => { if (t.run_id != null) handleRunSelect(t.run_id); }}
-                  className={`px-5 py-3 cursor-pointer transition-colors ${
+                  className={`px-5 py-3.5 cursor-pointer transition-colors ${
                     selectedRunId === t.run_id
-                      ? 'bg-blue-50 border-l-2 border-blue-500'
+                      ? 'bg-blue-50 border-l-2 border-l-blue-500'
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <p className="text-sm font-medium text-gray-800">{t.experiment_name}</p>
+                  <p className="text-sm font-medium text-gray-800 truncate">{t.experiment_name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {t.user_name} · {t.mode} · Job #{t.job_id}{t.run_id != null ? ` · Run #${t.run_id}` : ''}
+                    {t.user_name} · {t.mode}
+                    {t.run_id != null && (
+                      <span className="ml-1.5 font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
+                        Run #{t.run_id}
+                      </span>
+                    )}
                   </p>
                 </div>
               ))
@@ -95,35 +122,73 @@ export default function Artifacts() {
 
         {/* 아티팩트 목록 */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-700">아티팩트 목록</span>
             {selectedRunId && (
-              <span className="ml-2 text-xs text-gray-400">#{selectedRunId}</span>
+              <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                Run #{selectedRunId}
+              </span>
+            )}
+            {selectedRunId && artifacts.length > 0 && (
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-auto">
+                {artifacts.length}개
+              </span>
             )}
           </div>
-          <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
             {!selectedRunId ? (
-              <p className="px-5 py-8 text-sm text-center text-gray-400">학습을 선택하세요.</p>
+              <p className="px-5 py-10 text-sm text-center text-gray-400">좌측에서 실험을 선택하세요.</p>
             ) : artLoading ? (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex items-center justify-center py-10">
                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
               </div>
             ) : artifacts.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-center text-gray-400">아티팩트가 없습니다.</p>
+              <p className="px-5 py-10 text-sm text-center text-gray-400">아티팩트가 없습니다.</p>
             ) : (
-              artifacts.map(a => (
-                <div key={a.id} className="px-5 py-3 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-medium text-gray-800">{a.file_name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ARTIFACT_TYPE_STYLE[a.artifact_type] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {a.artifact_type}
-                    </span>
+              artifacts.map(a => {
+                const isMock = a.file_path.startsWith('/mock/');
+                return (
+                  <div key={a.id} className="px-5 py-3.5 hover:bg-gray-50 transition-colors flex items-center gap-3">
+                    {/* 파일 아이콘 */}
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+
+                    {/* 파일 정보 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm font-medium text-gray-800 truncate">{a.file_name}</span>
+                        <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${ARTIFACT_TYPE_STYLE[a.artifact_type] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {ARTIFACT_TYPE_LABEL[a.artifact_type] ?? a.artifact_type}
+                        </span>
+                        {isMock && (
+                          <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
+                            mock
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 truncate">
+                        {fmtSize(a.file_size)}
+                        {a.created_at && ` · ${a.created_at.slice(0, 10)}`}
+                      </p>
+                    </div>
+
+                    {/* 다운로드 버튼 */}
+                    <button
+                      onClick={() => handleDownload(a)}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-colors"
+                      title="파일 다운로드"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      다운로드
+                    </button>
                   </div>
-                  <p className="text-xs text-gray-400">
-                    {a.file_path} · {fmtSize(a.file_size)}
-                  </p>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

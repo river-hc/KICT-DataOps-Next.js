@@ -1,4 +1,4 @@
-import type { TrainingJob } from './api';
+import type { TrainingJob, Artifact } from './api';
 
 // ─── 타입 ─────────────────────────────────────────────────────────────────────
 
@@ -216,6 +216,144 @@ export const MOCK_TRAINING_RUNS: MockTrainingRun[] = [
     training_metrics: { best_epoch: 61, best_val_loss: 0.0487, final_train_loss: 0.0456, final_val_loss: 0.0512 },
   },
 ];
+
+// ─── 학습 결과 상세 (job_id 기준) ─────────────────────────────────────────────
+
+export interface LossCurvePoint { epoch: number; train: number; val: number; }
+
+export interface TrainingRunDetail {
+  model_version:    string;
+  train_period:     string;
+  total_epochs:     number;
+  batch_size:       number;
+  learning_rate:    number;
+  base_checkpoint:  string | null;
+  best_epoch:       number;
+  best_val_loss:    number;
+  final_train_loss: number;
+  final_val_loss:   number;
+  loss_curve:       LossCurvePoint[];
+}
+
+function genCurve(
+  total: number,
+  initTrain: number, initVal: number,
+  finalTrain: number, finalVal: number,
+  bestEpoch: number, bestVal: number,
+): LossCurvePoint[] {
+  const pts: LossCurvePoint[] = [];
+  const step = Math.max(1, Math.floor(total / 20));
+  for (let e = 1; e <= total; e += step) {
+    const r = e / total;
+    const train = initTrain + (finalTrain - initTrain) * Math.sqrt(r);
+    const valBase = initVal + (bestVal - initVal) * Math.sqrt(Math.min(1, e / bestEpoch));
+    const overshoot = e > bestEpoch ? ((e - bestEpoch) / (total - bestEpoch)) * (finalVal - bestVal) : 0;
+    pts.push({
+      epoch: e,
+      train: Math.round(train * 1e4) / 1e4,
+      val:   Math.round((valBase + overshoot) * 1e4) / 1e4,
+    });
+  }
+  if (pts[pts.length - 1].epoch !== total) {
+    pts.push({ epoch: total, train: finalTrain, val: finalVal });
+  }
+  return pts;
+}
+
+export const MOCK_TRAINING_DETAILS: Record<number, TrainingRunDetail> = {
+  // job_id: 4 — 2026-06-04 12:00 QPE (v3), run_id: 12
+  4: {
+    model_version: 'v3', train_period: '2023-01 ~ 2024-12',
+    total_epochs: 100, batch_size: 32, learning_rate: 0.001, base_checkpoint: null,
+    best_epoch: 87, best_val_loss: 0.0354, final_train_loss: 0.0321, final_val_loss: 0.0389,
+    loss_curve: genCurve(100, 0.118, 0.142, 0.0321, 0.0389, 87, 0.0354),
+  },
+  // job_id: 5 — 2026-06-04 09:00 QPE (v2), run_id: 11
+  5: {
+    model_version: 'v2', train_period: '2021-01 ~ 2023-12',
+    total_epochs: 100, batch_size: 32, learning_rate: 0.001, base_checkpoint: null,
+    best_epoch: 61, best_val_loss: 0.0487, final_train_loss: 0.0456, final_val_loss: 0.0512,
+    loss_curve: genCurve(100, 0.135, 0.158, 0.0456, 0.0512, 61, 0.0487),
+  },
+  // job_id: 6 — 2026-06-03 18:00 저녁 예보 (v3), run_id: 10
+  6: {
+    model_version: 'v3', train_period: '2023-01 ~ 2025-12',
+    total_epochs: 100, batch_size: 32, learning_rate: 0.001, base_checkpoint: 'checkpoint_run14_epoch43.pt',
+    best_epoch: 92, best_val_loss: 0.0348, final_train_loss: 0.0305, final_val_loss: 0.0371,
+    loss_curve: genCurve(100, 0.115, 0.138, 0.0305, 0.0371, 92, 0.0348),
+  },
+};
+
+// ─── 아티팩트 목 데이터 ───────────────────────────────────────────────────────
+
+import type { Artifact } from './api';
+
+// run_id별 아티팩트 목록 (API 실패 시 폴백)
+// file_path가 /mock/ 로 시작하면 정적 파일 직접 다운로드, 아니면 API URL 사용
+export const MOCK_ARTIFACTS: Record<number, Artifact[]> = {
+  12: [
+    {
+      id: 101, run_id: 12,
+      file_name: 'checkpoint_run12_epoch100.pt',
+      file_path: '/api/v1/artifacts/101/download',
+      file_size: 247_169_024,
+      artifact_type: 'model',
+      created_at: '2026-06-04T12:18:34',
+    },
+    {
+      id: 102, run_id: 12,
+      file_name: 'metrics_run12.json',
+      file_path: '/api/v1/artifacts/102/download',
+      file_size: 1_248,
+      artifact_type: 'metrics',
+      created_at: '2026-06-04T12:18:34',
+    },
+    {
+      id: 103, run_id: 12,
+      file_name: 'QPF_sample_t0.asc',
+      file_path: '/mock/QPF_sample_t0.asc',
+      file_size: null,
+      artifact_type: 'plot',
+      created_at: '2026-06-04T12:18:34',
+    },
+  ],
+  11: [
+    {
+      id: 104, run_id: 11,
+      file_name: 'checkpoint_run11_epoch100.pt',
+      file_path: '/api/v1/artifacts/104/download',
+      file_size: 247_169_024,
+      artifact_type: 'model',
+      created_at: '2026-06-04T09:22:10',
+    },
+    {
+      id: 105, run_id: 11,
+      file_name: 'QPF_sample_t0.asc',
+      file_path: '/mock/QPF_sample_t0.asc',
+      file_size: null,
+      artifact_type: 'plot',
+      created_at: '2026-06-04T09:22:10',
+    },
+  ],
+  10: [
+    {
+      id: 106, run_id: 10,
+      file_name: 'checkpoint_run10_epoch100.pt',
+      file_path: '/api/v1/artifacts/106/download',
+      file_size: 247_169_024,
+      artifact_type: 'model',
+      created_at: '2026-06-03T18:35:20',
+    },
+    {
+      id: 107, run_id: 10,
+      file_name: 'QPF_sample_t0.asc',
+      file_path: '/mock/QPF_sample_t0.asc',
+      file_size: null,
+      artifact_type: 'plot',
+      created_at: '2026-06-03T18:35:20',
+    },
+  ],
+};
 
 // ─── 성능 추이 차트 / 이력 테이블 공유 데이터 ─────────────────────────────────
 

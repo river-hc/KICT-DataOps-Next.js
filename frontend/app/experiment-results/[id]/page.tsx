@@ -12,7 +12,7 @@ import {
   fmtRunDatetime,
 } from '@/lib/mockData';
 
-// ─── 지표 메타 ────────────────────────────────────────────────────────────────
+// ─── 지표 메타 (POD / FAR / BIAS 제거) ───────────────────────────────────────
 
 const METRIC_META: Record<string, { label: string; unit: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    unit: 'mm', max: 6, higherBetter: false },
@@ -20,10 +20,9 @@ const METRIC_META: Record<string, { label: string; unit: string; max: number; hi
   csi_10: { label: 'CSI 10', unit: '',  max: 1, higherBetter: true  },
   csi_20: { label: 'CSI 20', unit: '',  max: 1, higherBetter: true  },
   csi_30: { label: 'CSI 30', unit: '',  max: 1, higherBetter: true  },
-  pod:    { label: 'POD',   unit: '',   max: 1, higherBetter: true  },
-  far:    { label: 'FAR',   unit: '',   max: 1, higherBetter: false },
-  bias:   { label: 'BIAS',  unit: '',   max: 2, higherBetter: false },
 };
+
+const SHOW_METRICS = new Set(Object.keys(METRIC_META));
 
 // ─── MetricBar ────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ export default function ExperimentResultDetail() {
               d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <p className="text-sm font-medium">실험을 찾을 수 없습니다.</p>
-          <Link href="/experiment-results" className="mt-4 text-xs text-blue-600 hover:underline">
+          <Link href="/experiments" className="mt-4 text-xs text-blue-600 hover:underline">
             목록으로 돌아가기
           </Link>
         </div>
@@ -74,34 +73,25 @@ export default function ExperimentResultDetail() {
     );
   }
 
-  if (!job) {
-    return (
-      <Layout>
-        <div className="flex items-center justify-center py-24">
-          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </Layout>
-    );
-  }
-
   const steps = detail?.params.forecast_steps ?? [];
-  const stepRows: number[][] = Array.from(
-    { length: Math.ceil(steps.length / 9) },
-    (_, i) => steps.slice(i * 9, i * 9 + 9)
-  );
+  const stepMin = steps.length > 0 ? Math.min(...steps) : null;
+  const stepMax = steps.length > 0 ? Math.max(...steps) : null;
+  const forecastLabel = stepMin != null && stepMax != null
+    ? stepMin === stepMax ? `${stepMin}분` : `${stepMin}분 ~ ${stepMax}분`
+    : '-';
 
   return (
     <Layout>
       {/* 뒤로가기 + 헤더 */}
       <div className="mb-6">
         <Link
-          href="/experiment-results"
+          href="/experiments"
           className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-4"
         >
           <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 4l-5 4 5 4" />
           </svg>
-          실험 결과 목록
+          실험 / 학습 목록
         </Link>
 
         <div className="flex items-start gap-3">
@@ -136,9 +126,9 @@ export default function ExperimentResultDetail() {
       {/* 본문 2컬럼 */}
       <div className="grid grid-cols-2 gap-6">
 
-        {/* 왼쪽: ASC 뷰어 (전체 높이 표시) */}
+        {/* 왼쪽: ASC 뷰어 */}
         <div>
-          {detail?.params.include_preview_image && detail?.ascUrls ? (
+          {detail?.ascUrls ? (
             <AscViewer steps={detail.params.forecast_steps} ascUrls={detail.ascUrls} />
           ) : (
             <div className="flex items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-200 min-h-[300px]">
@@ -147,7 +137,7 @@ export default function ExperimentResultDetail() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                     d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <p className="text-sm text-gray-400">미리보기 이미지 없음</p>
+                <p className="text-sm text-gray-400">강우장 데이터 없음</p>
               </div>
             </div>
           )}
@@ -161,9 +151,11 @@ export default function ExperimentResultDetail() {
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
               <div className="space-y-0.5">
-                {Object.entries(detail.metrics).map(([k, v]) => (
-                  <MetricBar key={k} metricKey={k} value={v} />
-                ))}
+                {Object.entries(detail.metrics)
+                  .filter(([k]) => SHOW_METRICS.has(k))
+                  .map(([k, v]) => (
+                    <MetricBar key={k} metricKey={k} value={v} />
+                  ))}
               </div>
             </div>
           )}
@@ -186,30 +178,18 @@ export default function ExperimentResultDetail() {
                   <span className="text-xs font-medium text-gray-900">{fmtRunDatetime(detail.params.run_datetime)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-500">미리보기</span>
-                  <span className={`text-xs font-medium ${detail.params.include_preview_image ? 'text-emerald-700' : 'text-gray-500'}`}>
-                    {detail.params.include_preview_image ? '포함' : '제외'}
+                  <span className="text-xs text-gray-500">예측 선행시간</span>
+                  <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                    {forecastLabel}
                   </span>
-                </div>
-                <div className="flex justify-between items-start gap-2 pt-1">
-                  <span className="text-xs text-gray-500 shrink-0">예측 선행시간</span>
-                  <div className="flex flex-col gap-1 items-end">
-                    {stepRows.map((row, ri) => (
-                      <div key={ri} className="flex gap-1">
-                        {row.map(n => (
-                          <span key={n} className="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded font-medium">{n}분</span>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 학습 일정 */}
+          {/* 실행 일정 */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">학습 일정</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">실행 일정</p>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">요청자</span>
