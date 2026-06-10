@@ -4,11 +4,30 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getTrainings, getTrainingLogs, createExperiment, createTraining,
+  getExperimentJobs, getTrainings, getModels,
+  getTrainingLogs, createExperimentJob, createTraining,
   fileToBase64, calculateTimestamp,
-  type TrainingJob, type AscFileInput,
+  type TrainingJob, type AscFileInput, type ModelVersion,
 } from '@/lib/api';
-import { MOCK_TRAININGS } from '@/lib/mockData';
+import { MOCK_EXPERIMENT_JOBS, MOCK_TRAINING_JOBS } from '@/lib/mockData';
+
+const FALLBACK_MODELS: ModelVersion[] = [
+  {
+    id: 1, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI',
+    version: 'Ver.3', status: 'CREATED',
+    metrics: { architecture: 'multi' }, model_path: null, created_at: null,
+  },
+  {
+    id: 2, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI',
+    version: 'Ver.2', status: 'CREATED',
+    metrics: { architecture: 'multi' }, model_path: null, created_at: null,
+  },
+  {
+    id: 3, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI',
+    version: 'Ver.1', status: 'CREATED',
+    metrics: { architecture: 'single' }, model_path: null, created_at: null,
+  },
+];
 
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
 const POLL_MS   = 3000;
@@ -73,53 +92,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ─── 태그 입력 (메모 + 태그 통합) ────────────────────────────────────────────
-
-function TagInput({
-  tags, onAdd, onRemove, placeholder,
-}: {
-  tags: string[]; onAdd: (t: string) => void; onRemove: (t: string) => void; placeholder?: string;
-}) {
-  const [input, setInput] = useState('');
-
-  const flush = () => {
-    const t = input.trim();
-    if (t && !tags.includes(t)) onAdd(t);
-    setInput('');
-  };
-
-  return (
-    <div className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
-      {tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {tags.map(tag => (
-            <span key={tag} className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs px-2 py-0.5 rounded-full">
-              {tag}
-              <button type="button" onClick={() => onRemove(tag)} className="text-blue-400 hover:text-blue-600 leading-none">
-                <svg viewBox="0 0 12 12" className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M2 2l8 8M10 2l-8 8" />
-                </svg>
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <input
-        type="text"
-        value={input}
-        onChange={e => setInput(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); flush(); }
-          if (e.key === 'Backspace' && input === '' && tags.length > 0) onRemove(tags[tags.length - 1]);
-        }}
-        onBlur={flush}
-        className="w-full text-sm text-gray-900 outline-none bg-transparent"
-        placeholder={tags.length === 0 ? (placeholder ?? '입력 후 Enter') : '태그 추가...'}
-      />
-    </div>
-  );
-}
-
 // ─── 파일 업로드 슬롯 ─────────────────────────────────────────────────────────
 
 function FileSlot({
@@ -173,15 +145,19 @@ function FileSlot({
 // 통합: 메모 + 태그 → TagInput
 
 function NewExperimentModal({
-  onClose, onSubmit,
+  onClose, onSubmit, models,
 }: {
   onClose: () => void;
-  onSubmit: (files: FormFiles, modelVersion: 'v2'|'v3', mode: 'single'|'multi', tags: string[]) => Promise<void>;
+  onSubmit: (files: FormFiles, modelVersion: string, mode: 'single'|'multi', memo: string) => Promise<void>;
+  models: ModelVersion[];
 }) {
-  const [modelVersion, setModelVersion] = useState<'v2'|'v3'>('v3');
-  const [runMode,      setRunMode]      = useState<'single'|'multi'>('single');
+  const [modelVersion, setModelVersion] = useState<string>(() => models[0]?.version ?? '');
+  const [runMode,      setRunMode]      = useState<'single'|'multi'>(() => {
+    const arch = models[0]?.metrics?.architecture as string | undefined;
+    return arch === 'multi' ? 'multi' : 'single';
+  });
   const [files,        setFiles]        = useState<FormFiles>(EMPTY_FILES);
-  const [tags,         setTags]         = useState<string[]>([]);
+  const [memo,         setMemo]         = useState('');
   const [submitting,   setSubmitting]   = useState(false);
   const [error,        setError]        = useState<string | null>(null);
 
@@ -190,7 +166,7 @@ function NewExperimentModal({
 
   const handleSubmit = async () => {
     setSubmitting(true); setError(null);
-    try   { await onSubmit(files, modelVersion, runMode, tags); onClose(); }
+    try   { await onSubmit(files, modelVersion, runMode, memo); onClose(); }
     catch (e: unknown) { setError(e instanceof Error ? e.message : '실험 시작에 실패했습니다.'); }
     finally { setSubmitting(false); }
   };
@@ -218,17 +194,27 @@ function NewExperimentModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600">모델 버전</label>
-              <div className="flex gap-2">
-                {(['v3', 'v2'] as const).map(v => (
-                  <button key={v} onClick={() => setModelVersion(v)}
-                    className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-colors ${
-                      modelVersion === v
-                        ? v === 'v3' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-sky-600 text-white border-sky-600'
-                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                    }`}
-                  >{v}</button>
-                ))}
-              </div>
+              <select
+                value={modelVersion}
+                onChange={e => {
+                  const v = e.target.value;
+                  setModelVersion(v);
+                  const sel = models.find(m => m.version === v);
+                  const arch = sel?.metrics?.architecture as string | undefined;
+                  if (arch === 'single' || arch === 'multi') setRunMode(arch);
+                }}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {models.map(m => {
+                  const arch = m.metrics?.architecture as string | undefined;
+                  const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
+                  return (
+                    <option key={m.id} value={m.version}>
+                      {m.version}{archLabel ? ` (${archLabel})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600">모드</label>
@@ -265,17 +251,15 @@ function NewExperimentModal({
             <p className="text-[11px] text-gray-400 mt-2">파일 없이도 실험을 시작할 수 있습니다.</p>
           </div>
 
-          {/* 메모 / 태그 통합 */}
+          {/* 메모 */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-gray-600">
-              메모 / 태그
-              <span className="ml-1.5 font-normal text-gray-400">(Enter 또는 쉼표로 태그 추가 · 검색 가능)</span>
-            </label>
-            <TagInput
-              tags={tags}
-              onAdd={t => setTags(prev => [...prev, t])}
-              onRemove={t => setTags(prev => prev.filter(x => x !== t))}
-              placeholder="예: 강우, 실시간, 검증 — Enter로 추가"
+            <label className="text-xs font-medium text-gray-600">메모</label>
+            <textarea
+              value={memo}
+              onChange={e => setMemo(e.target.value)}
+              rows={3}
+              placeholder="학습 데이터 출처, 특이사항 등"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
@@ -305,14 +289,19 @@ function NewExperimentModal({
 // 고정: include_preview_image=true, forecast_steps=전체 18개, run_datetime=현재 시각
 
 function NewTrainingModal({
-  onClose, onSubmit,
+  onClose, onSubmit, models,
 }: {
   onClose: () => void;
-  onSubmit: (files: FormFiles, modelVersion: 'v2'|'v3', mode: 'single'|'multi') => Promise<void>;
+  onSubmit: (files: FormFiles, modelVersion: string, mode: 'single'|'multi', memo: string) => Promise<void>;
+  models: ModelVersion[];
 }) {
-  const [modelVersion, setModelVersion] = useState<'v2'|'v3'>('v3');
-  const [runMode,      setRunMode]      = useState<'single'|'multi'>('single');
+  const [modelVersion, setModelVersion] = useState<string>(() => models[0]?.version ?? '');
+  const [runMode,      setRunMode]      = useState<'single'|'multi'>(() => {
+    const arch = models[0]?.metrics?.architecture as string | undefined;
+    return arch === 'multi' ? 'multi' : 'single';
+  });
   const [files,        setFiles]        = useState<FormFiles>(EMPTY_FILES);
+  const [memo,         setMemo]         = useState('');
   const [submitting,   setSubmitting]   = useState(false);
   const [error,        setError]        = useState<string | null>(null);
 
@@ -321,7 +310,7 @@ function NewTrainingModal({
 
   const handleSubmit = async () => {
     setSubmitting(true); setError(null);
-    try   { await onSubmit(files, modelVersion, runMode); onClose(); }
+    try   { await onSubmit(files, modelVersion, runMode, memo); onClose(); }
     catch (e: unknown) { setError(e instanceof Error ? e.message : '학습 시작에 실패했습니다.'); }
     finally { setSubmitting(false); }
   };
@@ -349,17 +338,27 @@ function NewTrainingModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600">모델 버전</label>
-              <div className="flex gap-2">
-                {(['v3', 'v2'] as const).map(v => (
-                  <button key={v} onClick={() => setModelVersion(v)}
-                    className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-colors ${
-                      modelVersion === v
-                        ? v === 'v3' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-sky-600 text-white border-sky-600'
-                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                    }`}
-                  >{v}</button>
-                ))}
-              </div>
+              <select
+                value={modelVersion}
+                onChange={e => {
+                  const v = e.target.value;
+                  setModelVersion(v);
+                  const sel = models.find(m => m.version === v);
+                  const arch = sel?.metrics?.architecture as string | undefined;
+                  if (arch === 'single' || arch === 'multi') setRunMode(arch);
+                }}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {models.map(m => {
+                  const arch = m.metrics?.architecture as string | undefined;
+                  const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
+                  return (
+                    <option key={m.id} value={m.version}>
+                      {m.version}{archLabel ? ` (${archLabel})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600">모드</label>
@@ -376,14 +375,10 @@ function NewTrainingModal({
           </div>
 
           {/* 고정값 안내 */}
-          <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-2">
+          <div className="bg-gray-50 rounded-xl px-4 py-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium text-gray-700">예측 선행시간</p>
               <span className="text-xs text-gray-500 bg-white border border-gray-200 px-2 py-0.5 rounded-lg">10분 ~ 180분 (기본값)</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-700">ASC 미리보기 이미지</p>
-              <span className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">항상 포함</span>
             </div>
           </div>
 
@@ -397,6 +392,18 @@ function NewTrainingModal({
               ))}
             </div>
             <p className="text-[11px] text-gray-400 mt-2">파일 없이도 학습을 시작할 수 있습니다.</p>
+          </div>
+
+          {/* 메모 */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-gray-600">메모</label>
+            <textarea
+              value={memo}
+              onChange={e => setMemo(e.target.value)}
+              rows={3}
+              placeholder="학습 데이터 출처, 특이사항 등"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
           </div>
 
         </div>
@@ -575,6 +582,7 @@ function TrainingContent({
 }: {
   jobs: TrainingJob[]; loading: boolean; onRefresh: () => void;
 }) {
+  const [filter,       setFilter]       = useState('ALL');
   const [selectedId,   setSelectedId]   = useState<number | null>(null);
   const [logs,         setLogs]         = useState<string[]>([]);
   const [logsLoading,  setLogsLoading]  = useState(false);
@@ -582,6 +590,21 @@ function TrainingContent({
 
   const selectedJob       = jobs.find(j => j.job_id === selectedId) ?? null;
   const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
+
+  const TABS = [
+    { key: 'ALL',       label: '전체',      cls: 'bg-gray-700 text-white' },
+    { key: 'RUNNING',   label: '실행 중',   cls: 'bg-emerald-500 text-white' },
+    { key: 'QUEUED',    label: '대기 중',   cls: 'bg-amber-400 text-white' },
+    { key: 'COMPLETED', label: '완료',      cls: 'bg-blue-500 text-white' },
+    { key: 'FAILED',    label: '실패/취소', cls: 'bg-red-400 text-white' },
+  ];
+
+  const filtered = filter === 'ALL'
+    ? jobs
+    : jobs.filter(j => {
+        const s = j.status.toUpperCase();
+        return s === filter || (filter === 'FAILED' && s === 'CANCELED');
+      });
 
   useEffect(() => {
     if (selectedId == null) { setLogs([]); return; }
@@ -611,32 +634,33 @@ function TrainingContent({
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-        <span className="text-sm font-semibold text-gray-700">학습 목록</span>
-        <div className="flex items-center gap-3">
-          {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-          <button
-            onClick={onRefresh}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            새로고침
-          </button>
+        <div className="flex gap-1.5">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key)}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${
+                filter === tab.key ? tab.cls : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
+        {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
       </div>
       <table className="w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
-            {['ID', '실험명', '모드', '상태', '진행률', '등록일', '작업'].map(h => (
-              <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+            {['ID', '실험명', '모드', '상태', '진행률', '등록일', '소요 시간'].map(h => (
+              <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                 {h}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {jobs.flatMap(job => {
+          {filtered.flatMap(job => {
             const s          = job.status.toUpperCase();
             const isSelected = selectedId === job.job_id;
             const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
@@ -650,10 +674,12 @@ function TrainingContent({
                 <td className="px-5 py-3">
                   <span className="font-mono text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">#{job.job_id}</span>
                 </td>
-                <td className="px-5 py-3 font-medium text-gray-800">{job.experiment_name}</td>
-                <td className="px-5 py-3 text-gray-500">{job.mode}</td>
+                <td className="px-5 py-3 font-medium text-gray-800 max-w-[200px]">
+                  <span className="truncate block">{job.experiment_name}</span>
+                </td>
+                <td className="px-5 py-3 text-gray-500 text-xs">{job.mode}</td>
                 <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
-                <td className="px-5 py-3 min-w-[140px]">
+                <td className="px-5 py-3 min-w-[120px]">
                   {s === 'RUNNING' && job.progress != null ? (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -666,19 +692,8 @@ function TrainingContent({
                     </div>
                   ) : <span className="text-xs text-gray-300">—</span>}
                 </td>
-                <td className="px-5 py-3 text-gray-400 text-xs">{job.created_at?.slice(0,10) ?? '-'}</td>
-                <td className="px-5 py-3">
-                  {s === 'RUNNING' && (
-                    <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-red-600 hover:underline mr-2">
-                      정지
-                    </button>
-                  )}
-                  {(s === 'COMPLETED' || s === 'FAILED') && (
-                    <button onClick={e => { e.stopPropagation(); onRefresh(); }} className="text-xs text-amber-600 hover:underline">
-                      재설정
-                    </button>
-                  )}
-                </td>
+                <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
+                <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
               </tr>
             );
 
@@ -721,9 +736,9 @@ function TrainingContent({
                     )}
                   </div>
 
-                  {/* 결과 상세보기 */}
-                  {s === 'COMPLETED' && (
-                    <div className="mb-4">
+                  {/* 액션 버튼 */}
+                  <div className="mb-4 flex gap-2">
+                    {s === 'COMPLETED' && (
                       <Link
                         href={`/training-results/${job.job_id}`}
                         className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
@@ -733,8 +748,16 @@ function TrainingContent({
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                         </svg>
                       </Link>
-                    </div>
-                  )}
+                    )}
+                    {s === 'RUNNING' && (
+                      <button
+                        onClick={onRefresh}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 text-sm font-semibold rounded-lg hover:bg-red-100 transition"
+                      >
+                        정지
+                      </button>
+                    )}
+                  </div>
 
                   {/* 로그 패널 */}
                   <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
@@ -778,31 +801,62 @@ function TrainingContent({
 export default function UnifiedPage() {
   const [mode,      setMode]      = useState<Mode>('experiment');
   const [showModal, setShowModal] = useState(false);
-  const [jobs,      setJobs]      = useState<TrainingJob[]>([]);
-  const [loading,   setLoading]   = useState(false);
 
-  const refresh = useCallback(() => {
-    setLoading(true);
-    getTrainings()
-      .then(setJobs)
-      .catch(() => setJobs(MOCK_TRAININGS))
-      .finally(() => setLoading(false));
+  const [models,       setModels]       = useState<ModelVersion[]>([]);
+  const [expJobs,      setExpJobs]      = useState<TrainingJob[]>([]);
+  const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
+  const [expLoading,   setExpLoading]   = useState(false);
+  const [trainLoading, setTrainLoading] = useState(false);
+
+  const refreshExp = useCallback(() => {
+    setExpLoading(true);
+    getExperimentJobs()
+      .then(data => setExpJobs(data.length ? data : MOCK_EXPERIMENT_JOBS))
+      .catch(() => setExpJobs(MOCK_EXPERIMENT_JOBS))
+      .finally(() => setExpLoading(false));
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const refreshTrain = useCallback(() => {
+    setTrainLoading(true);
+    getTrainings()
+      .then(data => setTrainJobs(data.length ? data : MOCK_TRAINING_JOBS))
+      .catch(() => setTrainJobs(MOCK_TRAINING_JOBS))
+      .finally(() => setTrainLoading(false));
+  }, []);
 
   useEffect(() => {
-    const hasActive = jobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
+    getModels()
+      .then(data => setModels(data.length ? data : FALLBACK_MODELS))
+      .catch(() => setModels(FALLBACK_MODELS));
+  }, []);
+
+  useEffect(() => { refreshExp(); refreshTrain(); }, [refreshExp, refreshTrain]);
+
+  // 실험 폴링
+  useEffect(() => {
+    const hasActive = expJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
     if (!hasActive) return;
-    const id = setInterval(() => { getTrainings().then(setJobs).catch(() => {}); }, POLL_MS);
+    const id = setInterval(() => {
+      getExperimentJobs().then(data => setExpJobs(data.length ? data : MOCK_EXPERIMENT_JOBS)).catch(() => {});
+    }, POLL_MS);
     return () => clearInterval(id);
-  }, [jobs]);
+  }, [expJobs]);
+
+  // 학습 폴링
+  useEffect(() => {
+    const hasActive = trainJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
+    if (!hasActive) return;
+    const id = setInterval(() => {
+      getTrainings().then(data => setTrainJobs(data.length ? data : MOCK_TRAINING_JOBS)).catch(() => {});
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [trainJobs]);
 
   const handleSubmitExperiment = async (
     files: FormFiles,
-    modelVersion: 'v2' | 'v3',
-    runMode: 'single' | 'multi',
-    tags: string[],
+    modelVersion: string,
+    _runMode: 'single' | 'multi',
+    memo: string,
   ) => {
     const nowDt = getNowDt();
     const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
@@ -810,14 +864,14 @@ export default function UnifiedPage() {
         ? { filename: fs.name, timestamp: calculateTimestamp(nowDt, offset), file_data: await fileToBase64(fs.file) }
         : { filename: null, timestamp: null, file_data: null };
 
-    await createExperiment({
+    await createExperimentJob({
       run_datetime:          nowDt,
       model_version:         modelVersion,
       forecast_steps:        ALL_STEPS,
       include_preview_image: true,
       experiment_name:       null,
-      experiment_tags:       tags.length > 0 ? tags : null,
-      experiment_memo:       tags.length > 0 ? tags.join(', ') : null,
+      experiment_tags:       null,
+      experiment_memo:       memo || null,
       input_files: {
         file_t0: await makeFile(files.t0, -30),
         file_t1: await makeFile(files.t1, -20),
@@ -825,13 +879,14 @@ export default function UnifiedPage() {
         file_t3: await makeFile(files.t3,   0),
       },
     });
-    refresh();
+    refreshExp();
   };
 
   const handleSubmitTraining = async (
     files: FormFiles,
-    modelVersion: 'v2' | 'v3',
-    runMode: 'single' | 'multi',
+    modelVersion: string,
+    _runMode: 'single' | 'multi',
+    memo: string,
   ) => {
     const nowDt = getNowDt();
     const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
@@ -846,7 +901,7 @@ export default function UnifiedPage() {
       model_version:         modelVersion,
       forecast_steps:        ALL_STEPS,
       include_preview_image: true,
-      experiment_memo:       null,
+      experiment_memo:       memo || null,
       input_files: {
         file_t0: await makeFile(files.t0, -30),
         file_t1: await makeFile(files.t1, -20),
@@ -854,16 +909,16 @@ export default function UnifiedPage() {
         file_t3: await makeFile(files.t3,   0),
       },
     });
-    refresh();
+    refreshTrain();
   };
 
   return (
     <Layout>
       {showModal && mode === 'experiment' && (
-        <NewExperimentModal onClose={() => setShowModal(false)} onSubmit={handleSubmitExperiment} />
+        <NewExperimentModal onClose={() => setShowModal(false)} onSubmit={handleSubmitExperiment} models={models} />
       )}
       {showModal && mode === 'training' && (
-        <NewTrainingModal onClose={() => setShowModal(false)} onSubmit={handleSubmitTraining} />
+        <NewTrainingModal onClose={() => setShowModal(false)} onSubmit={handleSubmitTraining} models={models} />
       )}
 
       {/* 헤더 */}
@@ -910,9 +965,9 @@ export default function UnifiedPage() {
 
       {/* 컨텐츠 */}
       {mode === 'experiment' ? (
-        <ExperimentContent jobs={jobs} loading={loading} />
+        <ExperimentContent jobs={expJobs} loading={expLoading} />
       ) : (
-        <TrainingContent jobs={jobs} loading={loading} onRefresh={refresh} />
+        <TrainingContent jobs={trainJobs} loading={trainLoading} onRefresh={refreshTrain} />
       )}
     </Layout>
   );

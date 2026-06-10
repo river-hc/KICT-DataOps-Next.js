@@ -135,7 +135,7 @@ function precipToRgba(val: number, nodata: number): readonly [number, number, nu
   return                 [180,   0, 180, 255];  // 극강 (보라)
 }
 
-const COLORBAR: { label: string; color: string }[] = [
+export const COLORBAR: { label: string; color: string }[] = [
   { label: '0',   color: 'rgba(200,235,255,0.7)' },
   { label: '0.5', color: 'rgb(120,190,255)' },
   { label: '1',   color: 'rgb(50,130,240)' },
@@ -268,14 +268,54 @@ function calcStats(grid: AscGrid) {
 
 interface AscViewerProps {
   steps: number[];
-  ascTexts?: Record<number, string>;  // 이미 로드된 ASC 텍스트
-  ascUrls?:  Record<number, string>;  // URL 기반 지연 로딩
+  ascTexts?: Record<number, string>;
+  ascUrls?:  Record<number, string>;
+  // Controlled playback (optional — omit for uncontrolled mode)
+  frameIdx?:        number;
+  onFrameChange?:   (i: number) => void;
+  playing?:         boolean;
+  onPlayingChange?: (p: boolean) => void;
+  speed?:           number;
+  onSpeedChange?:   (ms: number) => void;
+  hideControls?:    boolean;
 }
 
-export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) {
-  const [frameIdx,   setFrameIdx]   = useState(0);
-  const [isPlaying,  setIsPlaying]  = useState(false);
-  const [intervalMs, setIntervalMs] = useState(900);
+export default function AscViewer(props: AscViewerProps) {
+  const { steps, ascTexts, ascUrls, hideControls } = props;
+
+  // ── Internal state (uncontrolled mode) ──
+  const [_frameIdx,   _setFrameIdx]   = useState(0);
+  const [_isPlaying,  _setIsPlaying]  = useState(false);
+  const [_intervalMs, _setIntervalMs] = useState(900);
+
+  // ── Resolved values ──
+  const isControlledFrame   = props.frameIdx   !== undefined;
+  const isControlledPlaying = props.playing    !== undefined;
+  const isControlledSpeed   = props.speed      !== undefined;
+
+  const frameIdx   = isControlledFrame   ? (props.frameIdx   ?? 0) : _frameIdx;
+  const isPlaying  = isControlledPlaying ? (props.playing    ?? false) : _isPlaying;
+  const intervalMs = isControlledSpeed   ? (props.speed      ?? 900)   : _intervalMs;
+
+  // Ref so effects always see latest frameIdx without stale closure
+  const frameIdxRef = useRef(frameIdx);
+  frameIdxRef.current = frameIdx;
+
+  // ── Setters that respect controlled/uncontrolled ──
+  const setFrameIdx = useCallback((i: number) => {
+    if (!isControlledFrame) _setFrameIdx(i);
+    props.onFrameChange?.(i);
+  }, [isControlledFrame, props.onFrameChange]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setIsPlaying = useCallback((p: boolean) => {
+    if (!isControlledPlaying) _setIsPlaying(p);
+    props.onPlayingChange?.(p);
+  }, [isControlledPlaying, props.onPlayingChange]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setIntervalMs = useCallback((ms: number) => {
+    if (!isControlledSpeed) _setIntervalMs(ms);
+    props.onSpeedChange?.(ms);
+  }, [isControlledSpeed, props.onSpeedChange]);  // eslint-disable-line react-hooks/exhaustive-deps
   const [fetchVer,   setFetchVer]   = useState(0);  // 데이터 로드 시 리렌더 트리거
 
   const fetchedRef  = useRef<Record<number, string>>({});   // 로드된 텍스트 캐시
@@ -329,25 +369,25 @@ export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) 
     }
   }, [frameIdx, grids]);
 
-  // 자동 재생
+  // 자동 재생 (frameIdxRef로 stale closure 방지)
   useEffect(() => {
     if (!isPlaying) return;
     const id = setInterval(
-      () => setFrameIdx(prev => (prev + 1) % steps.length),
+      () => setFrameIdx((frameIdxRef.current + 1) % steps.length),
       intervalMs
     );
     return () => clearInterval(id);
-  }, [isPlaying, intervalMs, steps.length]);
+  }, [isPlaying, intervalMs, steps.length, setFrameIdx]);
 
   const goPrev = useCallback(() => {
     setIsPlaying(false);
-    setFrameIdx(i => (i - 1 + steps.length) % steps.length);
-  }, [steps.length]);
+    setFrameIdx((frameIdxRef.current - 1 + steps.length) % steps.length);
+  }, [steps.length, setFrameIdx, setIsPlaying]);
 
   const goNext = useCallback(() => {
     setIsPlaying(false);
-    setFrameIdx(i => (i + 1) % steps.length);
-  }, [steps.length]);
+    setFrameIdx((frameIdxRef.current + 1) % steps.length);
+  }, [steps.length, setFrameIdx, setIsPlaying]);
 
   if (!steps.length) return null;
 
@@ -427,74 +467,64 @@ export default function AscViewer({ steps, ascTexts, ascUrls }: AscViewerProps) 
         )}
       </div>
 
-      {/* 컨트롤 바 */}
-      <div className="flex items-center gap-2 mt-3">
-        <button
-          onClick={goPrev}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition text-xs font-bold"
-        >
-          ◀
-        </button>
-        <button
-          onClick={() => setIsPlaying(p => !p)}
-          className={`w-8 h-8 flex items-center justify-center rounded-lg transition text-sm ${
-            isPlaying
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
-        >
-          {isPlaying ? '⏸' : '▶'}
-        </button>
-        <button
-          onClick={goNext}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition text-xs font-bold"
-        >
-          ▶
-        </button>
+      {/* 컨트롤 바 + 타임라인 + 컬러바 */}
+      {!hideControls && (
+        <>
+          <div className="flex items-center gap-2 mt-3">
+            <button onClick={goPrev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
+              <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M11 4L5 8l6 4V4z"/></svg>
+            </button>
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${isPlaying ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {isPlaying
+                ? <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
+                : <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
+              }
+            </button>
+            <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
+              <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
+            </button>
+            <div className="flex items-center gap-2 ml-auto text-xs text-gray-400">
+              <span>느림</span>
+              <input type="range" min={200} max={2000} step={100}
+                value={2200 - intervalMs}
+                onChange={e => setIntervalMs(2200 - Number(e.target.value))}
+                className="w-20 accent-blue-600"
+              />
+              <span>빠름</span>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2 ml-auto text-xs text-gray-400">
-          <span>느림</span>
-          <input
-            type="range" min={200} max={2000} step={100}
-            value={2200 - intervalMs}
-            onChange={e => setIntervalMs(2200 - Number(e.target.value))}
-            className="w-20 accent-blue-600"
-          />
-          <span>빠름</span>
-        </div>
-      </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {steps.map((step, i) => (
+              <button key={step}
+                onClick={() => { setFrameIdx(i); setIsPlaying(false); }}
+                className={`text-xs px-2.5 py-1 rounded-full font-medium transition ${
+                  i === frameIdx
+                    ? 'bg-blue-600 text-white'
+                    : fetchedRef.current[step] !== undefined
+                      ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >T+{step}</button>
+            ))}
+          </div>
 
-      {/* 타임라인 */}
-      <div className="flex flex-wrap gap-1.5 mt-3">
-        {steps.map((step, i) => (
-          <button
-            key={step}
-            onClick={() => { setFrameIdx(i); setIsPlaying(false); }}
-            className={`text-xs px-2.5 py-1 rounded-full font-medium transition ${
-              i === frameIdx
-                ? 'bg-blue-600 text-white'
-                : fetchedRef.current[step] !== undefined
-                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            T+{step}
-          </button>
-        ))}
-      </div>
-
-      {/* 컬러바 */}
-      <div className="mt-3">
-        <div className="flex h-3 rounded overflow-hidden">
-          {COLORBAR.slice(0, -1).map((s, i) => (
-            <div key={i} className="flex-1" style={{ background: s.color }} />
-          ))}
-        </div>
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
-          {COLORBAR.map(s => <span key={s.label}>{s.label}</span>)}
-        </div>
-        <p className="text-xs text-gray-400 text-right mt-0.5">단위: mm/hr</p>
-      </div>
+          <div className="mt-3">
+            <div className="flex h-3 rounded overflow-hidden">
+              {COLORBAR.slice(0, -1).map((s, i) => (
+                <div key={i} className="flex-1" style={{ background: s.color }} />
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              {COLORBAR.map(s => <span key={s.label}>{s.label}</span>)}
+            </div>
+            <p className="text-xs text-gray-400 text-right mt-0.5">단위: mm/hr</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -16,7 +16,8 @@ export interface MockDetail {
 
 // ─── 모의 데이터 ──────────────────────────────────────────────────────────────
 
-export const MOCK_TRAININGS: TrainingJob[] = [
+// 실험 작업 mock (QPF 예측 — GET /api/v1/experiments/jobs)
+export const MOCK_EXPERIMENT_JOBS: TrainingJob[] = [
   {
     job_id: 1, user_name: 'admin', experiment_name: '2026-06-05 10:00 QPE 실험 (v3)',
     mode: 'single', status: 'RUNNING', progress: 67, current_epoch: 67, total_epochs: 100,
@@ -58,6 +59,43 @@ export const MOCK_TRAININGS: TrainingJob[] = [
     run_id: null, created_at: '2026-06-02T09:55:00', started_at: null, finished_at: '2026-06-02T09:57:00',
   },
 ];
+
+// 학습 작업 mock (모델 가중치 업데이트 — GET /api/v1/trainings)
+export const MOCK_TRAINING_JOBS: TrainingJob[] = [
+  {
+    job_id: 101, user_name: 'admin', experiment_name: 'v3 파인튜닝 — 2026 상반기 데이터',
+    mode: 'multi', status: 'RUNNING', progress: 42, current_epoch: 21, total_epochs: 50,
+    run_id: null, created_at: '2026-06-05T08:00:00', started_at: '2026-06-05T08:05:00', finished_at: null,
+  },
+  {
+    job_id: 102, user_name: 'researcher1', experiment_name: 'v3 기반 2025 전체 재학습',
+    mode: 'multi', status: 'QUEUED', progress: null, current_epoch: null, total_epochs: 100,
+    run_id: null, created_at: '2026-06-05T07:50:00', started_at: null, finished_at: null,
+  },
+  {
+    job_id: 4, user_name: 'admin', experiment_name: 'v3 전이학습 — 환경부 레이더',
+    mode: 'single', status: 'COMPLETED', progress: 100, current_epoch: 80, total_epochs: 80,
+    run_id: 12, created_at: '2026-06-04T10:00:00', started_at: '2026-06-04T10:05:00', finished_at: '2026-06-04T12:18:34',
+  },
+  {
+    job_id: 5, user_name: 'researcher1', experiment_name: 'v2 → v3 증류 학습',
+    mode: 'single', status: 'COMPLETED', progress: 100, current_epoch: 60, total_epochs: 60,
+    run_id: 11, created_at: '2026-06-03T09:00:00', started_at: '2026-06-03T09:05:00', finished_at: '2026-06-03T11:22:10',
+  },
+  {
+    job_id: 6, user_name: 'admin', experiment_name: 'v3 멀티모드 파라미터 튜닝',
+    mode: 'multi', status: 'COMPLETED', progress: 100, current_epoch: 100, total_epochs: 100,
+    run_id: 10, created_at: '2026-06-02T18:00:00', started_at: '2026-06-02T18:05:00', finished_at: '2026-06-02T21:35:20',
+  },
+  {
+    job_id: 103, user_name: 'researcher2', experiment_name: 'v2 추가 학습 — GPU OOM 재현',
+    mode: 'single', status: 'FAILED', progress: 12, current_epoch: 6, total_epochs: 50,
+    run_id: null, created_at: '2026-06-01T14:00:00', started_at: '2026-06-01T14:05:00', finished_at: '2026-06-01T14:18:00',
+  },
+];
+
+// 대시보드·아티팩트 등 기존 페이지 호환용
+export const MOCK_TRAININGS: TrainingJob[] = MOCK_EXPERIMENT_JOBS;
 
 export const MOCK_DETAILS: Record<number, MockDetail> = {
   1: {

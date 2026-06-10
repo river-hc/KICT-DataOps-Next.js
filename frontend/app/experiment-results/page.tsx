@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getTrainings, type TrainingJob } from '@/lib/api';
+import { getExperimentJobs, type TrainingJob } from '@/lib/api';
 import {
-  MOCK_TRAININGS,
+  MOCK_EXPERIMENT_JOBS,
   MOCK_DETAILS,
   fmtDateTime,
   fmtDuration,
@@ -17,9 +17,6 @@ const METRIC_META: Record<string, { label: string; max: number; higherBetter: bo
   csi_10: { label: 'CSI 10', max: 1, higherBetter: true  },
   csi_20: { label: 'CSI 20', max: 1, higherBetter: true  },
   csi_30: { label: 'CSI 30', max: 1, higherBetter: true  },
-  pod:    { label: 'POD',   max: 1, higherBetter: true  },
-  far:    { label: 'FAR',   max: 1, higherBetter: false },
-  bias:   { label: 'BIAS',  max: 2, higherBetter: false },
 };
 
 function SummaryCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
@@ -38,9 +35,9 @@ export default function ExperimentResults() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getTrainings()
+    getExperimentJobs()
       .then(data => setJobs(data.filter(j => j.status === 'COMPLETED')))
-      .catch(() => setJobs(MOCK_TRAININGS.filter(j => j.status === 'COMPLETED')))
+      .catch(() => setJobs(MOCK_EXPERIMENT_JOBS.filter(j => j.status === 'COMPLETED')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -87,7 +84,7 @@ export default function ExperimentResults() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                {['#', '실험명', '모델', '모드', '완료 시각', '소요 시간', 'MAE', 'RMSE', 'CSI 10', 'POD', 'FAR', 'Run'].map(h => (
+                {['#', '실험명', '모델', '모드', '완료 시각', '소요 시간', 'MAE', 'RMSE', 'CSI 10', 'Run'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -124,7 +121,7 @@ export default function ExperimentResults() {
                     <td className="px-4 py-3 text-xs text-gray-500">{j.mode}</td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDateTime(j.finished_at)}</td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDuration(j.started_at, j.finished_at)}</td>
-                    {(['mae', 'rmse', 'csi_10', 'pod', 'far'] as const).map(key => {
+                    {(['mae', 'rmse', 'csi_10'] as const).map(key => {
                       const val = m?.[key];
                       if (val == null) return <td key={key} className="px-4 py-3 text-gray-300 text-xs">-</td>;
                       const meta = METRIC_META[key];

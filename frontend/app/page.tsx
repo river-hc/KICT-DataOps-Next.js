@@ -6,10 +6,12 @@ import DashboardExplorer from '@/lib/DashboardExplorer';
 import DashboardKanban   from '@/lib/DashboardKanban';
 import {
   getTrainings,
+  getExperimentJobs,
   getSystemStatus,
   type TrainingJob,
   type SystemStatus,
 } from '@/lib/api';
+import { MOCK_EXPERIMENT_JOBS, MOCK_TRAINING_JOBS } from '@/lib/mockData';
 import type { MockDetail } from '@/lib/mockData';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
@@ -25,52 +27,9 @@ export default function Page() {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabKey = 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
+type JobTab = 'experiment' | 'training';
 
-
-// ─── 모의 데이터 ──────────────────────────────────────────────────────────────
-
-const MOCK_TRAININGS: TrainingJob[] = [
-  {
-    job_id: 1, user_name: 'admin', experiment_name: '2026-06-05 10:00 QPE 실험 (v3)',
-    mode: 'single', status: 'RUNNING', progress: 67, current_epoch: 67, total_epochs: 100,
-    run_id: null, created_at: '2026-06-05T09:55:00', started_at: '2026-06-05T10:00:00', finished_at: null,
-  },
-  {
-    job_id: 2, user_name: 'researcher1', experiment_name: '2026-06-05 09:00 강수 검증 실험',
-    mode: 'multi', status: 'QUEUED', progress: null, current_epoch: null, total_epochs: null,
-    run_id: null, created_at: '2026-06-05T09:50:00', started_at: null, finished_at: null,
-  },
-  {
-    job_id: 3, user_name: 'admin', experiment_name: '2026-06-04 15:00 야간 예보 실험',
-    mode: 'single', status: 'QUEUED', progress: null, current_epoch: null, total_epochs: null,
-    run_id: null, created_at: '2026-06-05T09:58:00', started_at: null, finished_at: null,
-  },
-  {
-    job_id: 4, user_name: 'admin', experiment_name: '2026-06-04 12:00 오후 QPE (v3)',
-    mode: 'single', status: 'COMPLETED', progress: 100, current_epoch: 100, total_epochs: 100,
-    run_id: 12, created_at: '2026-06-04T11:55:00', started_at: '2026-06-04T12:00:00', finished_at: '2026-06-04T12:18:34',
-  },
-  {
-    job_id: 5, user_name: 'researcher1', experiment_name: '2026-06-04 09:00 오전 QPE (v2)',
-    mode: 'single', status: 'COMPLETED', progress: 100, current_epoch: 100, total_epochs: 100,
-    run_id: 11, created_at: '2026-06-04T08:55:00', started_at: '2026-06-04T09:00:00', finished_at: '2026-06-04T09:22:10',
-  },
-  {
-    job_id: 6, user_name: 'admin', experiment_name: '2026-06-03 18:00 저녁 예보 검증 (v3)',
-    mode: 'multi', status: 'COMPLETED', progress: 100, current_epoch: 100, total_epochs: 100,
-    run_id: 10, created_at: '2026-06-03T17:55:00', started_at: '2026-06-03T18:00:00', finished_at: '2026-06-03T18:35:20',
-  },
-  {
-    job_id: 7, user_name: 'researcher2', experiment_name: '2026-06-03 14:00 오후 QPE 테스트',
-    mode: 'single', status: 'FAILED', progress: 23, current_epoch: 23, total_epochs: 100,
-    run_id: null, created_at: '2026-06-03T13:55:00', started_at: '2026-06-03T14:00:00', finished_at: '2026-06-03T14:08:15',
-  },
-  {
-    job_id: 8, user_name: 'admin', experiment_name: '2026-06-02 10:00 구형 모델 비교 (v2)',
-    mode: 'single', status: 'CANCELED', progress: null, current_epoch: null, total_epochs: null,
-    run_id: null, created_at: '2026-06-02T09:55:00', started_at: null, finished_at: '2026-06-02T09:57:00',
-  },
-];
+// ─── 실험 상세 mock (버전 표시용) ──────────────────────────────────────────────
 
 const MOCK_DETAILS: Record<number, MockDetail> = {
   1: {
@@ -162,7 +121,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-
 // ─── 도넛 차트 ────────────────────────────────────────────────────────────────
 
 const DONUT_SEGS: { key: TabKey; label: string; color: string }[] = [
@@ -172,7 +130,7 @@ const DONUT_SEGS: { key: TabKey; label: string; color: string }[] = [
   { key: 'FAILED',    label: '실패',    color: '#ef4444' },
 ];
 
-function StatusDonutChart({ trainings }: { trainings: TrainingJob[] }) {
+function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
   const [progress,   setProgress]   = useState(0);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
@@ -192,12 +150,12 @@ function StatusDonutChart({ trainings }: { trainings: TrainingJob[] }) {
   }, []);
 
   const counts: Record<TabKey, number> = {
-    RUNNING:   trainings.filter(t => t.status === 'RUNNING').length,
-    QUEUED:    trainings.filter(t => t.status === 'QUEUED').length,
-    COMPLETED: trainings.filter(t => t.status === 'COMPLETED').length,
-    FAILED:    trainings.filter(t => t.status === 'FAILED' || t.status === 'CANCELED').length,
+    RUNNING:   jobs.filter(t => t.status === 'RUNNING').length,
+    QUEUED:    jobs.filter(t => t.status === 'QUEUED').length,
+    COMPLETED: jobs.filter(t => t.status === 'COMPLETED').length,
+    FAILED:    jobs.filter(t => t.status === 'FAILED' || t.status === 'CANCELED').length,
   };
-  const total = trainings.length;
+  const total = jobs.length;
   const R = 80, SW = 20, C = 2 * Math.PI * R, CX = 108, CY = 108;
 
   let cumFrac = 0;
@@ -215,7 +173,7 @@ function StatusDonutChart({ trainings }: { trainings: TrainingJob[] }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
       <div className="flex flex-col items-center px-4 py-4 gap-3 flex-1 justify-center">
-        <svg viewBox="0 0 216 216" className="w-full max-w-[148px]">
+        <svg viewBox="0 0 216 216" className="w-full max-w-[296px]">
           <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={SW} />
           {arcs.filter(a => a.count > 0).map(a => {
             const isHovered = hoveredKey === a.key;
@@ -232,10 +190,7 @@ function StatusDonutChart({ trainings }: { trainings: TrainingJob[] }) {
                 strokeLinecap="butt"
                 onMouseEnter={() => setHoveredKey(a.key)}
                 onMouseLeave={() => setHoveredKey(null)}
-                style={{
-                  opacity: isHovered ? 0.7 : 1,
-                  transition: 'opacity 0.15s',
-                }}
+                style={{ opacity: isHovered ? 0.7 : 1, transition: 'opacity 0.15s' }}
               />
             );
           })}
@@ -291,7 +246,6 @@ function PerfLineChart() {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
-      {/* 헤더 */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-gray-700">성능 추이</h3>
@@ -313,13 +267,8 @@ function PerfLineChart() {
         </div>
       </div>
 
-      {/* 차트 — 남은 공간을 모두 채움 */}
       <div className="flex-1 min-h-0 px-3 pb-2">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full h-full"
-          preserveAspectRatio="none"
-        >
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
           {[0, 2, 4, 6].map(v => (
             <g key={v}>
               <line x1={p.l} y1={ys(v)} x2={p.l + pw} y2={ys(v)} stroke="#f3f4f6" strokeWidth="1" />
@@ -355,7 +304,6 @@ function PerfLineChart() {
         </svg>
       </div>
 
-      {/* 툴팁 */}
       <div className="flex-shrink-0 h-9 px-4 pb-2 flex justify-center items-center">
         {hov !== null && (
           <div className="flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-1.5 text-xs">
@@ -381,15 +329,20 @@ function PerfLineChart() {
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
 function Dashboard() {
-  const [trainings, setTrainings] = useState<TrainingJob[]>([]);
-  const [system, setSystem]       = useState<SystemStatus | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const [expJobs,   setExpJobs]   = useState<TrainingJob[]>([]);
+  const [trainJobs, setTrainJobs] = useState<TrainingJob[]>([]);
+  const [system,    setSystem]    = useState<SystemStatus | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [jobTab,    setJobTab]    = useState<JobTab>('experiment');
 
   const fetchAll = useCallback(async () => {
     await Promise.all([
+      getExperimentJobs()
+        .then(data => setExpJobs(data.length ? data : MOCK_EXPERIMENT_JOBS))
+        .catch(() => setExpJobs(MOCK_EXPERIMENT_JOBS)),
       getTrainings()
-        .then(setTrainings)
-        .catch(() => setTrainings(MOCK_TRAININGS)),
+        .then(data => setTrainJobs(data.length ? data : MOCK_TRAINING_JOBS))
+        .catch(() => setTrainJobs(MOCK_TRAINING_JOBS)),
       getSystemStatus().then(setSystem).catch(() => {}),
     ]);
   }, []);
@@ -410,6 +363,17 @@ function Dashboard() {
       </Layout>
     );
   }
+
+  const allJobs    = [...expJobs, ...trainJobs];
+  const currentJobs = jobTab === 'experiment' ? expJobs : trainJobs;
+  const sorted = [...currentJobs]
+    .sort((a, b) => new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime())
+    .slice(0, 10);
+
+  const JOB_TABS: { key: JobTab; label: string; count: number }[] = [
+    { key: 'experiment', label: '실험', count: expJobs.length },
+    { key: 'training',   label: '학습', count: trainJobs.length },
+  ];
 
   return (
     <Layout>
@@ -433,74 +397,93 @@ function Dashboard() {
 
       {/* 도넛 차트 + 성능 추이 차트 */}
       <div className="flex gap-4 mb-6 items-stretch">
-
-        {/* 왼쪽: 상태 도넛 차트 (40%) */}
         <div className="w-[40%]">
-          <StatusDonutChart trainings={trainings} />
+          <StatusDonutChart jobs={allJobs} />
         </div>
-
-        {/* 오른쪽: 성능 추이 차트 (60%) */}
         <div className="w-[60%]">
           <PerfLineChart />
         </div>
-
       </div>
 
-      {/* 최근 작업 목록 (최대 10건, 등록일 내림차순) */}
-      {trainings.length === 0 ? (
-        <div className="py-16 text-center text-gray-400 text-sm">등록된 작업이 없습니다.</div>
-      ) : (() => {
-        const sorted = [...trainings]
-          .sort((a, b) => new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime())
-          .slice(0, 10);
-        return (
-          <div>
+      {/* 최근 작업 목록 */}
+      <div>
+        {/* 탭 */}
+        <div className="flex items-center mb-3">
+          <div className="flex rounded-lg overflow-hidden border border-gray-200">
+            {JOB_TABS.map((tab, i) => (
+              <button
+                key={tab.key}
+                onClick={() => setJobTab(tab.key)}
+                className={`flex items-center gap-2 px-4 py-1.5 text-sm font-medium transition-colors ${
+                  i > 0 ? 'border-l border-gray-200' : ''
+                } ${
+                  jobTab === tab.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {tab.label}
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                  jobTab === tab.key ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 테이블 */}
+        {sorted.length === 0 ? (
+          <div className="py-16 text-center text-gray-400 text-sm">등록된 작업이 없습니다.</div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             {/* 컬럼 헤더 */}
-            <div className="grid grid-cols-[1fr_110px_160px_130px] gap-4 px-5 pb-2">
+            <div className="grid grid-cols-[1fr_110px_160px_130px] gap-4 px-5 py-2.5 bg-gray-50 border-b border-gray-100">
               {['이름', '상태', '모드 / 버전', '생성일자'].map(h => (
                 <span key={h} className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</span>
               ))}
             </div>
 
-            {/* 카드 목록 */}
-            <div className="space-y-2">
-              {sorted.map(job => {
-                const s       = job.status.toUpperCase();
-                const version = MOCK_DETAILS[job.job_id]?.params.model_version ?? '-';
-                return (
-                  <div
-                    key={job.job_id}
-                    className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-3.5 grid grid-cols-[1fr_110px_160px_130px] gap-4 items-center"
-                  >
-                    {/* 이름 */}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{job.experiment_name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">#{job.job_id} · {job.user_name}</p>
-                    </div>
-
-                    {/* 상태 */}
-                    <div>
-                      <StatusBadge status={job.status} />
-                      {s === 'RUNNING' && job.progress != null && (
-                        <div className="mt-1.5 h-1 bg-gray-100 rounded-full overflow-hidden w-[90px]">
-                          <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 모드 / 버전 */}
-                    <span className="text-sm text-gray-600">{job.mode} / {version}</span>
-
-                    {/* 생성일자 */}
-                    <span className="text-sm text-gray-500 whitespace-nowrap">{fmtDateTime(job.created_at)}</span>
+            {/* 행 */}
+            {sorted.map((job, idx) => {
+              const s       = job.status.toUpperCase();
+              const version = MOCK_DETAILS[job.job_id]?.params.model_version ?? '-';
+              const isLast  = idx === sorted.length - 1;
+              return (
+                <div
+                  key={job.job_id}
+                  className={`bg-white px-5 py-3.5 grid grid-cols-[1fr_110px_160px_130px] gap-4 items-center ${
+                    !isLast ? 'border-b border-gray-100' : ''
+                  }`}
+                >
+                  {/* 이름 */}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{job.experiment_name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">#{job.job_id} · {job.user_name}</p>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
 
+                  {/* 상태 */}
+                  <div>
+                    <StatusBadge status={job.status} />
+                    {s === 'RUNNING' && job.progress != null && (
+                      <div className="mt-1.5 h-1 bg-gray-100 rounded-full overflow-hidden w-[90px]">
+                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 모드 / 버전 */}
+                  <span className="text-sm text-gray-600">{job.mode} / {version}</span>
+
+                  {/* 생성일자 */}
+                  <span className="text-sm text-gray-500 whitespace-nowrap">{fmtDateTime(job.created_at)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </Layout>
   );
 }

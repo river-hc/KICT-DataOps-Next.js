@@ -241,7 +241,7 @@ export interface ExperimentCreateRequest {
     file_t2: AscFileInput;
     file_t3: AscFileInput;
   };
-  model_version: 'v2' | 'v3' | null;
+  model_version: string | null;
   forecast_steps: number[] | null;
   include_preview_image: boolean | null;
   experiment_name: string | null;
@@ -268,11 +268,20 @@ export async function getExperimentRuns(id: number): Promise<ExperimentRun[]> {
   return request<ExperimentRun[]>(`/experiments/${id}/runs`);
 }
 
-export async function createExperiment(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
-  return request<ExperimentCreateResponse>('/trainings', {
+export async function getExperimentJobs(): Promise<TrainingJob[]> {
+  return request<TrainingJob[]>('/experiments/jobs');
+}
+
+export async function createExperimentJob(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
+  return request<ExperimentCreateResponse>('/experiments/jobs', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/** @deprecated use createExperimentJob */
+export async function createExperiment(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
+  return createExperimentJob(body);
 }
 
 // ─── Runs ─────────────────────────────────────────────────────────────────────

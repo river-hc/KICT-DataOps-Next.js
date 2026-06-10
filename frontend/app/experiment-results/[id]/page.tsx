@@ -1,9 +1,10 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
-import AscViewer from '@/lib/AscViewer';
+import AscViewer, { COLORBAR } from '@/lib/AscViewer';
 import {
   MOCK_TRAININGS,
   MOCK_DETAILS,
@@ -12,7 +13,7 @@ import {
   fmtRunDatetime,
 } from '@/lib/mockData';
 
-// ─── 지표 메타 (POD / FAR / BIAS 제거) ───────────────────────────────────────
+// ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
 const METRIC_META: Record<string, { label: string; unit: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    unit: 'mm', max: 6, higherBetter: false },
@@ -24,19 +25,15 @@ const METRIC_META: Record<string, { label: string; unit: string; max: number; hi
 
 const SHOW_METRICS = new Set(Object.keys(METRIC_META));
 
-// ─── MetricBar ────────────────────────────────────────────────────────────────
-
 function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
   const meta = METRIC_META[metricKey] ?? { label: metricKey.toUpperCase(), unit: '', max: 1, higherBetter: true };
   const pct  = Math.min(100, Math.max(0, (value / meta.max) * 100));
   const good = meta.higherBetter ? pct > 60 : pct < 40;
-  const barCls = good ? 'bg-emerald-500' : 'bg-amber-500';
-
   return (
     <div className="flex items-center gap-3 py-1">
       <span className="text-xs text-gray-500 w-16 shrink-0">{meta.label}</span>
       <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className={`h-full ${barCls} rounded-full`} style={{ width: `${pct}%` }} />
+        <div className={`h-full ${good ? 'bg-emerald-500' : 'bg-amber-500'} rounded-full`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs font-mono font-bold text-gray-800 w-14 text-right shrink-0">
         {value.toFixed(3)}
@@ -56,6 +53,22 @@ export default function ExperimentResultDetail() {
   const job    = jobId != null ? MOCK_TRAININGS.find(j => j.job_id === jobId) ?? null : null;
   const detail = jobId != null ? (MOCK_DETAILS[jobId] ?? null) : null;
 
+  // ── 재생 상태 (AscViewer controlled mode) ──
+  const steps = detail?.params.forecast_steps ?? [];
+  const [frameIdx,   setFrameIdx]   = useState(0);
+  const [isPlaying,  setIsPlaying]  = useState(false);
+  const [intervalMs, setIntervalMs] = useState(900);
+
+  const goPrev = useCallback(() => {
+    setIsPlaying(false);
+    setFrameIdx(i => (i - 1 + steps.length) % steps.length);
+  }, [steps.length]);
+
+  const goNext = useCallback(() => {
+    setIsPlaying(false);
+    setFrameIdx(i => (i + 1) % steps.length);
+  }, [steps.length]);
+
   if (jobId == null || !job) {
     return (
       <Layout>
@@ -73,7 +86,6 @@ export default function ExperimentResultDetail() {
     );
   }
 
-  const steps = detail?.params.forecast_steps ?? [];
   const stepMin = steps.length > 0 ? Math.min(...steps) : null;
   const stepMax = steps.length > 0 ? Math.max(...steps) : null;
   const forecastLabel = stepMin != null && stepMax != null
@@ -126,10 +138,20 @@ export default function ExperimentResultDetail() {
       {/* 본문 2컬럼 */}
       <div className="grid grid-cols-2 gap-6">
 
-        {/* 왼쪽: ASC 뷰어 */}
+        {/* 왼쪽: ASC 뷰어 (캔버스만, 컨트롤 숨김) */}
         <div>
           {detail?.ascUrls ? (
-            <AscViewer steps={detail.params.forecast_steps} ascUrls={detail.ascUrls} />
+            <AscViewer
+              steps={steps}
+              ascUrls={detail.ascUrls}
+              hideControls
+              frameIdx={frameIdx}
+              onFrameChange={setFrameIdx}
+              playing={isPlaying}
+              onPlayingChange={setIsPlaying}
+              speed={intervalMs}
+              onSpeedChange={setIntervalMs}
+            />
           ) : (
             <div className="flex items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-200 min-h-[300px]">
               <div className="text-center">
@@ -143,8 +165,74 @@ export default function ExperimentResultDetail() {
           )}
         </div>
 
-        {/* 오른쪽: 지표 + 설정 */}
+        {/* 오른쪽: 재생 컨트롤 + 지표 + 설정 */}
         <div className="flex flex-col gap-4">
+
+          {/* 재생 컨트롤 */}
+          {steps.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">재생 컨트롤</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-800">T+{steps[frameIdx]}분</span>
+                  <span className="text-xs text-gray-400">{frameIdx + 1} / {steps.length}</span>
+                </div>
+              </div>
+
+              {/* prev / play / next + 속도 */}
+              <div className="flex items-center gap-2 mb-3">
+                <button onClick={goPrev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M11 4L5 8l6 4V4z"/></svg>
+                </button>
+                <button
+                  onClick={() => setIsPlaying(p => !p)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${isPlaying ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {isPlaying
+                    ? <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
+                    : <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
+                  }
+                </button>
+                <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
+                </button>
+                <div className="flex items-center gap-2 ml-auto text-xs text-gray-400">
+                  <span>느림</span>
+                  <input type="range" min={200} max={2000} step={100}
+                    value={2200 - intervalMs}
+                    onChange={e => setIntervalMs(2200 - Number(e.target.value))}
+                    className="w-20 accent-blue-600"
+                  />
+                  <span>빠름</span>
+                </div>
+              </div>
+
+              {/* 타임라인 */}
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {steps.map((step, i) => (
+                  <button key={step}
+                    onClick={() => { setFrameIdx(i); setIsPlaying(false); }}
+                    className={`text-xs px-2.5 py-1 rounded-full font-medium transition ${
+                      i === frameIdx ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >T+{step}</button>
+                ))}
+              </div>
+
+              {/* 컬러바 */}
+              <div>
+                <div className="flex h-3 rounded overflow-hidden">
+                  {COLORBAR.slice(0, -1).map((s, i) => (
+                    <div key={i} className="flex-1" style={{ background: s.color }} />
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  {COLORBAR.map(s => <span key={s.label}>{s.label}</span>)}
+                </div>
+                <p className="text-xs text-gray-400 text-right mt-0.5">단위: mm/hr</p>
+              </div>
+            </div>
+          )}
 
           {/* 성능 지표 */}
           {detail?.metrics && (
@@ -168,9 +256,7 @@ export default function ExperimentResultDetail() {
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">모델 버전</span>
                   <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                    detail.params.model_version === 'v3'
-                      ? 'bg-violet-50 text-violet-700'
-                      : 'bg-amber-50 text-amber-700'
+                    detail.params.model_version === 'v3' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'
                   }`}>{detail.params.model_version}</span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -179,9 +265,7 @@ export default function ExperimentResultDetail() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">예측 선행시간</span>
-                  <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                    {forecastLabel}
-                  </span>
+                  <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{forecastLabel}</span>
                 </div>
               </div>
             </div>

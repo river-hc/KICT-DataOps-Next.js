@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
-import { getTrainings, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
-import { MOCK_TRAININGS, MOCK_ARTIFACTS } from '@/lib/mockData';
+import { getExperimentJobs, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
+import { MOCK_EXPERIMENT_JOBS, MOCK_ARTIFACTS } from '@/lib/mockData';
 
 const ARTIFACT_TYPE_STYLE: Record<string, string> = {
   model:   'bg-violet-100 text-violet-700',
@@ -45,9 +45,9 @@ export default function Artifacts() {
   const [artLoading, setArtLoading]       = useState(false);
 
   useEffect(() => {
-    getTrainings()
+    getExperimentJobs()
       .then(data => setTrainings(data))
-      .catch(() => setTrainings(MOCK_TRAININGS))
+      .catch(() => setTrainings(MOCK_EXPERIMENT_JOBS))
       .finally(() => setLoading(false));
   }, []);
 
