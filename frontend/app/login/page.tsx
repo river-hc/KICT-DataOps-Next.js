@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -23,8 +24,9 @@ export default function LoginPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('token', data.access_token);
-        router.push('/');
+        localStorage.setItem('token',    data.access_token);
+        localStorage.setItem('username', data.username ?? username);
+        router.push('/dashboard');
       } else {
         const err = await res.json().catch(() => ({ detail: '로그인에 실패했습니다.' }));
         setError(err.detail || '로그인에 실패했습니다.');
@@ -52,45 +54,36 @@ export default function LoginPage() {
         {/* 브랜딩 헤더 */}
         <div
           className="px-8 pt-8 pb-6 text-center"
-          style={{ borderBottom: '1px solid var(--login-border)' }}
+          style={{
+            background:   'var(--login-header-bg)',
+            borderBottom: '1px solid var(--login-border)',
+          }}
         >
-          <div
-            className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4"
-            style={{ background: 'color-mix(in srgb, var(--login-accent) 12%, transparent)' }}
-          >
-            <svg
-              viewBox="0 0 40 40"
-              className="w-8 h-8"
-              fill="none"
-              style={{ color: 'var(--login-accent)' }}
-            >
-              <circle cx="20" cy="20" r="17" stroke="currentColor" strokeWidth="2" />
-              <circle cx="20" cy="13" r="3" fill="currentColor" />
-              <circle cx="27" cy="25" r="3" fill="currentColor" />
-              <circle cx="13" cy="25" r="3" fill="currentColor" />
-              <line x1="20" y1="13" x2="27" y2="25" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-              <line x1="27" y1="25" x2="13" y2="25" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-              <line x1="13" y1="25" x2="20" y2="13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-            </svg>
+          <div className="flex items-center justify-center mb-4">
+            <Image
+              src="/Images/KICT_logo.png"
+              alt="KICT 로고"
+              width={160}
+              height={48}
+              style={{ objectFit: 'contain' }}
+              priority
+            />
           </div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--login-text)' }}>
-            DataOps Platform
-          </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--login-muted)' }}>
             AI 모델 학습 및 결과 관리 플랫폼
           </p>
         </div>
 
         {/* 로그인 폼 */}
-        <form onSubmit={handleSubmit} className="px-8 py-6 space-y-4">
+        <form onSubmit={handleSubmit} className="px-8 py-6 space-y-4" style={{ background: 'var(--login-form-bg)' }}>
           {/* 사용자명 */}
           <div>
             <label
               htmlFor="username"
               className="block text-xs font-semibold mb-1.5"
-              style={{ color: 'var(--login-muted)' }}
+              style={{ color: 'var(--login-muted-2)' }}
             >
-              사용자명
+              아이디
             </label>
             <input
               id="username"
@@ -103,7 +96,7 @@ export default function LoginPage() {
                 color:       'var(--login-input-text)',
                 borderColor: 'var(--login-border)',
               }}
-              placeholder="사용자명을 입력하세요"
+              placeholder="아이디를 입력하세요"
               required
               autoComplete="username"
             />
@@ -114,7 +107,7 @@ export default function LoginPage() {
             <label
               htmlFor="password"
               className="block text-xs font-semibold mb-1.5"
-              style={{ color: 'var(--login-muted)' }}
+              style={{ color: 'var(--login-muted-2)' }}
             >
               비밀번호
             </label>
@@ -187,35 +180,6 @@ export default function LoginPage() {
             ) : '로그인'}
           </button>
         </form>
-
-        {/* 기본 계정 힌트 */}
-        <div className="px-8 pb-6">
-          <div
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-xs"
-            style={{ background: 'color-mix(in srgb, var(--login-accent) 8%, transparent)' }}
-          >
-            <svg
-              className="w-3.5 h-3.5 flex-shrink-0"
-              style={{ color: 'var(--login-accent)' }}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-            <span style={{ color: 'var(--login-muted)' }}>
-              기본 계정:&nbsp;
-              <span className="font-medium" style={{ color: 'var(--login-accent)' }}>
-                admin / admin123
-              </span>
-            </span>
-          </div>
-        </div>
       </div>
     </div>
   );

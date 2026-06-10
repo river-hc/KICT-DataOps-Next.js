@@ -203,6 +203,7 @@ export async function createTraining(body: {
   experiment_name?: string | null;
   run_datetime?: string | null;
   model_version?: string | null;
+  mode?: 'single' | 'multi' | null;
   forecast_steps?: number[] | null;
   include_preview_image?: boolean | null;
   experiment_tags?: string[] | null;
@@ -250,6 +251,7 @@ export interface ExperimentCreateRequest {
     file_t3: AscFileInput;
   };
   model_version: string | null;
+  mode: 'single' | 'multi' | null;
   forecast_steps: number[] | null;
   include_preview_image: boolean | null;
   experiment_name: string | null;
@@ -277,11 +279,11 @@ export async function getExperimentRuns(id: number): Promise<ExperimentRun[]> {
 }
 
 export async function getExperimentJobs(): Promise<TrainingJob[]> {
-  return request<TrainingJob[]>('/experiments/jobs');
+  return request<TrainingJob[]>('/trainings');
 }
 
 export async function createExperimentJob(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
-  return request<ExperimentCreateResponse>('/experiments/jobs', {
+  return request<ExperimentCreateResponse>('/trainings', {
     method: 'POST',
     body: JSON.stringify(body),
   });

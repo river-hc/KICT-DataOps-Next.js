@@ -67,9 +67,12 @@
 :root {
   --login-bg:         #eff6ff;
   --login-card-bg:    #ffffff;
+  --login-header-bg:  #1d4ed8;   /* 로고/브랜딩 상단 영역 배경색 */
+  --login-form-bg:    #ffffff;   /* 아이디/비밀번호 폼 영역 배경색 */
   --login-accent:     #2563eb;
   --login-text:       #1f2937;
-  --login-muted:      #6b7280;
+  --login-muted:      #ffffff;
+  --login-muted-2:    #000000;
   --login-border:     #e5e7eb;
   --login-input-bg:   #ffffff;
   --login-input-text: #1f2937;
@@ -78,6 +81,8 @@
 [data-theme="dark"] {
   --login-bg:         #0f172a;
   --login-card-bg:    #1e293b;
+  --login-header-bg:  #0f172a;
+  --login-form-bg:    #1e293b;
   --login-accent:     #38bdf8;
   --login-text:       #f1f5f9;
   --login-muted:      #94a3b8;
@@ -89,6 +94,8 @@
 [data-theme="modern"] {
   --login-bg:         #f5f3ff;
   --login-card-bg:    #ffffff;
+  --login-header-bg:  #7c3aed;
+  --login-form-bg:    #ffffff;
   --login-accent:     #7c3aed;
   --login-text:       #1e293b;
   --login-muted:      #64748b;

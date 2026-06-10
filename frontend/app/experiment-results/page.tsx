@@ -3,13 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, type TrainingJob } from '@/lib/api';
-import {
-  MOCK_EXPERIMENT_JOBS,
-  MOCK_DETAILS,
-  fmtDateTime,
-  fmtDuration,
-} from '@/lib/mockData';
+import { getExperimentJobs, getTrainingResult, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { MOCK_EXPERIMENT_JOBS, fmtDateTime, fmtDuration } from '@/lib/mockData';
 
 const METRIC_META: Record<string, { label: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    max: 6, higherBetter: false },
@@ -31,7 +26,8 @@ function SummaryCard({ label, value, sub, accent }: { label: string; value: stri
 
 export default function ExperimentResults() {
   const router = useRouter();
-  const [jobs, setJobs]     = useState<TrainingJob[]>([]);
+  const [jobs, setJobs]       = useState<TrainingJob[]>([]);
+  const [results, setResults] = useState<Record<number, TrainingResult>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,9 +37,20 @@ export default function ExperimentResults() {
       .finally(() => setLoading(false));
   }, []);
 
-  const allMetrics = jobs
-    .map(j => MOCK_DETAILS[j.job_id]?.metrics)
-    .filter((m): m is Record<string, number> => m != null);
+  // 완료 job 목록이 결정되면 각 result를 병렬 조회
+  useEffect(() => {
+    if (jobs.length === 0) return;
+    Promise.all(jobs.map(j => getTrainingResult(j.job_id).catch(() => null)))
+      .then(res => {
+        const map: Record<number, TrainingResult> = {};
+        res.forEach((r, i) => { if (r) map[jobs[i].job_id] = r; });
+        setResults(map);
+      });
+  }, [jobs]);
+
+  const allMetrics = Object.values(results)
+    .map(r => r.metrics)
+    .filter((m): m is Record<string, number> => !!m && Object.keys(m).length > 0);
 
   const bestMAE   = allMetrics.length ? Math.min(...allMetrics.map(m => m.mae    ?? Infinity))  : null;
   const bestCSI10 = allMetrics.length ? Math.max(...allMetrics.map(m => m.csi_10 ?? -Infinity)) : null;
@@ -93,8 +100,10 @@ export default function ExperimentResults() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {jobs.map(j => {
-                const d = MOCK_DETAILS[j.job_id];
-                const m = d?.metrics;
+                const result       = results[j.job_id];
+                const modelVersion = result?.params?.model_version ?? null;
+                const m            = result?.metrics;
+                const hasMetrics   = m && Object.keys(m).length > 0;
                 return (
                   <tr
                     key={j.job_id}
@@ -110,19 +119,21 @@ export default function ExperimentResults() {
                       <span className="block truncate">{j.experiment_name}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                        d?.params.model_version === 'v3'
-                          ? 'bg-violet-50 text-violet-700'
-                          : 'bg-amber-50 text-amber-700'
-                      }`}>
-                        {d?.params.model_version ?? '-'}
-                      </span>
+                      {modelVersion ? (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          modelVersion === 'v3' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700'
+                        }`}>
+                          {modelVersion}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{j.mode}</td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDateTime(j.finished_at)}</td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDuration(j.started_at, j.finished_at)}</td>
                     {(['mae', 'rmse', 'csi_10'] as const).map(key => {
-                      const val = m?.[key];
+                      const val = hasMetrics ? (m as Record<string, number>)[key] : undefined;
                       if (val == null) return <td key={key} className="px-4 py-3 text-gray-300 text-xs">-</td>;
                       const meta = METRIC_META[key];
                       const pct  = val / meta.max;

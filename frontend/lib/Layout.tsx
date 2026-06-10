@@ -70,16 +70,16 @@ interface NavGroup {
 type NavEntry = NavItem | NavGroup;
 
 const navItems: NavEntry[] = [
-  { name: '대시보드',        href: '/',            icon: Icons.dashboard  },
-  { name: '실험 / 학습',     href: '/experiments', icon: Icons.experiment },
+  { name: '대시보드',        href: '/dashboard',   icon: Icons.dashboard  },
+  { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
   { name: '시스템',          href: '/system',       icon: Icons.system     },
 ];
 
 const modernNavItems: NavEntry[] = [
-  { name: '대시보드',        href: '/',            icon: Icons.dashboard  },
-  { name: '실험 / 학습',     href: '/experiments', icon: Icons.experiment },
+  { name: '대시보드',        href: '/dashboard',   icon: Icons.dashboard  },
+  { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
   { name: '시스템',          href: '/system',       icon: Icons.system     },

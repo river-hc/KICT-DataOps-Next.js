@@ -4,12 +4,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getExperimentJobs, getTrainings, getModels,
-  getTrainingLogs, createExperimentJob, createTraining,
+  getExperimentJobs, getModels,
+  getTrainingLogs, createExperimentJob,
+  // 학습 기능: 개발 미정 — getTrainings, createTraining 주석 처리
+  // getTrainings, createTraining,
   fileToBase64, calculateTimestamp,
   type TrainingJob, type AscFileInput, type ModelVersion,
 } from '@/lib/api';
-import { MOCK_EXPERIMENT_JOBS, MOCK_TRAINING_JOBS } from '@/lib/mockData';
+import { MOCK_EXPERIMENT_JOBS } from '@/lib/mockData';
+// 학습 기능: 개발 미정 — MOCK_TRAINING_JOBS 주석 처리
+// import { MOCK_EXPERIMENT_JOBS, MOCK_TRAINING_JOBS } from '@/lib/mockData';
 
 const FALLBACK_MODELS: ModelVersion[] = [
   {
@@ -32,7 +36,8 @@ const FALLBACK_MODELS: ModelVersion[] = [
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
 const POLL_MS   = 3000;
 
-type Mode    = 'experiment' | 'training';
+// 학습 기능: 개발 미정 — type Mode 주석 처리
+// type Mode = 'experiment' | 'training';
 type SlotKey = 't0' | 't1' | 't2' | 't3';
 
 interface FileState { file: File | null; name: string | null; }
@@ -89,6 +94,31 @@ function StatusBadge({ status }: { status: string }) {
       {s === 'RUNNING' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />}
       {status}
     </span>
+  );
+}
+
+// ─── 진행률 바 ────────────────────────────────────────────────────────────────
+
+function ProgressBar({ progress, size = 'sm' }: { progress: number | null; size?: 'sm' | 'md' }) {
+  const h   = size === 'md' ? 'h-2' : 'h-1.5';
+  const pct = progress ?? 0;
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`flex-1 ${h} bg-gray-200 rounded-full overflow-hidden relative`}>
+        {/* 실제 채움 바 */}
+        <div
+          className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+        {/* 좌→우 shimmer (RUNNING 중 활동 표시) */}
+        <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
+          <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-white/60 to-transparent animate-shimmer-lr" />
+        </div>
+      </div>
+      <span className="text-xs text-gray-500 tabular-nums w-7 text-right flex-shrink-0">
+        {pct}%
+      </span>
+    </div>
   );
 }
 
@@ -190,44 +220,30 @@ function NewExperimentModal({
 
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
 
-          {/* 모델 설정 */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">모델 버전</label>
-              <select
-                value={modelVersion}
-                onChange={e => {
-                  const v = e.target.value;
-                  setModelVersion(v);
-                  const sel = models.find(m => m.version === v);
-                  const arch = sel?.metrics?.architecture as string | undefined;
-                  if (arch === 'single' || arch === 'multi') setRunMode(arch);
-                }}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                {models.map(m => {
-                  const arch = m.metrics?.architecture as string | undefined;
-                  const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
-                  return (
-                    <option key={m.id} value={m.version}>
-                      {m.version}{archLabel ? ` (${archLabel})` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">모드</label>
-              <div className="flex gap-2">
-                {(['single', 'multi'] as const).map(m => (
-                  <button key={m} onClick={() => setRunMode(m)}
-                    className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
-                      runMode === m ? 'bg-gray-800 text-white border-gray-800' : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                    }`}
-                  >{m}</button>
-                ))}
-              </div>
-            </div>
+          {/* 모델 설정 — 모드는 모델 등록 시 결정(single/multi 자동 설정) */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1.5">모델 버전</label>
+            <select
+              value={modelVersion}
+              onChange={e => {
+                const v = e.target.value;
+                setModelVersion(v);
+                const sel = models.find(m => m.version === v);
+                const arch = sel?.metrics?.architecture as string | undefined;
+                if (arch === 'single' || arch === 'multi') setRunMode(arch);
+              }}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              {models.map(m => {
+                const arch = m.metrics?.architecture as string | undefined;
+                const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
+                return (
+                  <option key={m.id} value={m.version}>
+                    {m.version}{archLabel ? ` (${archLabel})` : ''}
+                  </option>
+                );
+              })}
+            </select>
           </div>
 
           {/* 예측 선행시간 고정 표시 */}
@@ -498,14 +514,9 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                 <td className="px-5 py-3 text-gray-500 text-xs">{job.mode}</td>
                 <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
                 <td className="px-5 py-3 min-w-[120px]">
-                  {s === 'RUNNING' && job.progress != null ? (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${job.progress}%` }} />
-                      </div>
-                      <span className="text-xs text-gray-500 tabular-nums w-7 text-right">{job.progress}%</span>
-                    </div>
-                  ) : <span className="text-xs text-gray-300">—</span>}
+                  {s === 'RUNNING'
+                    ? <ProgressBar progress={job.progress} />
+                    : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
                 <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
@@ -532,17 +543,14 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                         <p className="text-sm text-gray-800">{row.value}</p>
                       </div>
                     ))}
-                    {s === 'RUNNING' && job.progress != null && (
+                    {s === 'RUNNING' && (
                       <div className="col-span-2">
                         <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                          </div>
-                          <span className="text-sm font-bold text-emerald-600 flex-shrink-0">{job.progress}%</span>
+                          <ProgressBar progress={job.progress} size="md" />
                           {job.current_epoch != null && (
-                            <span className="text-xs text-gray-400 flex-shrink-0">
-                              {job.current_epoch}/{job.total_epochs} epoch
+                            <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+                              {job.current_epoch}/{job.total_epochs} step
                             </span>
                           )}
                         </div>
@@ -680,17 +688,9 @@ function TrainingContent({
                 <td className="px-5 py-3 text-gray-500 text-xs">{job.mode}</td>
                 <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
                 <td className="px-5 py-3 min-w-[120px]">
-                  {s === 'RUNNING' && job.progress != null ? (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                      </div>
-                      <span className="text-xs text-gray-500 w-7 text-right flex-shrink-0">{job.progress}%</span>
-                      {job.current_epoch != null && job.total_epochs != null && (
-                        <span className="text-xs text-gray-400 flex-shrink-0">{job.current_epoch}/{job.total_epochs}</span>
-                      )}
-                    </div>
-                  ) : <span className="text-xs text-gray-300">—</span>}
+                  {s === 'RUNNING'
+                    ? <ProgressBar progress={job.progress} />
+                    : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
                 <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
@@ -718,17 +718,14 @@ function TrainingContent({
                         <p className="text-sm text-gray-800">{row.value}</p>
                       </div>
                     ))}
-                    {s === 'RUNNING' && job.progress != null && (
+                    {s === 'RUNNING' && (
                       <div className="col-span-2">
                         <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                          </div>
-                          <span className="text-sm font-bold text-emerald-600 flex-shrink-0">{job.progress}%</span>
+                          <ProgressBar progress={job.progress} size="md" />
                           {job.current_epoch != null && (
-                            <span className="text-xs text-gray-400 flex-shrink-0">
-                              {job.current_epoch}/{job.total_epochs} epoch
+                            <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+                              {job.current_epoch}/{job.total_epochs} step
                             </span>
                           )}
                         </div>
@@ -799,30 +796,32 @@ function TrainingContent({
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 
 export default function UnifiedPage() {
-  const [mode,      setMode]      = useState<Mode>('experiment');
   const [showModal, setShowModal] = useState(false);
 
-  const [models,       setModels]       = useState<ModelVersion[]>([]);
-  const [expJobs,      setExpJobs]      = useState<TrainingJob[]>([]);
-  const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
-  const [expLoading,   setExpLoading]   = useState(false);
-  const [trainLoading, setTrainLoading] = useState(false);
+  const [models,     setModels]     = useState<ModelVersion[]>([]);
+  const [expJobs,    setExpJobs]    = useState<TrainingJob[]>([]);
+  const [expLoading, setExpLoading] = useState(false);
+
+  // 학습 기능: 개발 미정 — 아래 코드 주석 처리
+  // const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
+  // const [trainLoading, setTrainLoading] = useState(false);
 
   const refreshExp = useCallback(() => {
     setExpLoading(true);
     getExperimentJobs()
-      .then(data => setExpJobs(data.length ? data : MOCK_EXPERIMENT_JOBS))
+      .then(data => setExpJobs(data))
       .catch(() => setExpJobs(MOCK_EXPERIMENT_JOBS))
       .finally(() => setExpLoading(false));
   }, []);
 
-  const refreshTrain = useCallback(() => {
-    setTrainLoading(true);
-    getTrainings()
-      .then(data => setTrainJobs(data.length ? data : MOCK_TRAINING_JOBS))
-      .catch(() => setTrainJobs(MOCK_TRAINING_JOBS))
-      .finally(() => setTrainLoading(false));
-  }, []);
+  // 학습 기능: 개발 미정 — 아래 코드 주석 처리
+  // const refreshTrain = useCallback(() => {
+  //   setTrainLoading(true);
+  //   getTrainings()
+  //     .then(data => setTrainJobs(data))
+  //     .catch(() => setTrainJobs(MOCK_TRAINING_JOBS))
+  //     .finally(() => setTrainLoading(false));
+  // }, []);
 
   useEffect(() => {
     getModels()
@@ -830,32 +829,32 @@ export default function UnifiedPage() {
       .catch(() => setModels(FALLBACK_MODELS));
   }, []);
 
-  useEffect(() => { refreshExp(); refreshTrain(); }, [refreshExp, refreshTrain]);
+  useEffect(() => { refreshExp(); }, [refreshExp]);
 
   // 실험 폴링
   useEffect(() => {
     const hasActive = expJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
     if (!hasActive) return;
     const id = setInterval(() => {
-      getExperimentJobs().then(data => setExpJobs(data.length ? data : MOCK_EXPERIMENT_JOBS)).catch(() => {});
+      getExperimentJobs().then(data => setExpJobs(data)).catch(() => {});
     }, POLL_MS);
     return () => clearInterval(id);
   }, [expJobs]);
 
-  // 학습 폴링
-  useEffect(() => {
-    const hasActive = trainJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
-    if (!hasActive) return;
-    const id = setInterval(() => {
-      getTrainings().then(data => setTrainJobs(data.length ? data : MOCK_TRAINING_JOBS)).catch(() => {});
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [trainJobs]);
+  // 학습 폴링: 개발 미정 — 아래 코드 주석 처리
+  // useEffect(() => {
+  //   const hasActive = trainJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
+  //   if (!hasActive) return;
+  //   const id = setInterval(() => {
+  //     getTrainings().then(data => setTrainJobs(data)).catch(() => {});
+  //   }, POLL_MS);
+  //   return () => clearInterval(id);
+  // }, [trainJobs]);
 
   const handleSubmitExperiment = async (
     files: FormFiles,
     modelVersion: string,
-    _runMode: 'single' | 'multi',
+    runMode: 'single' | 'multi',
     memo: string,
   ) => {
     const nowDt = getNowDt();
@@ -867,6 +866,7 @@ export default function UnifiedPage() {
     await createExperimentJob({
       run_datetime:          nowDt,
       model_version:         modelVersion,
+      mode:                  runMode,
       forecast_steps:        ALL_STEPS,
       include_preview_image: true,
       experiment_name:       null,
@@ -882,93 +882,37 @@ export default function UnifiedPage() {
     refreshExp();
   };
 
-  const handleSubmitTraining = async (
-    files: FormFiles,
-    modelVersion: string,
-    _runMode: 'single' | 'multi',
-    memo: string,
-  ) => {
-    const nowDt = getNowDt();
-    const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
-      fs.file
-        ? { filename: fs.name, timestamp: calculateTimestamp(nowDt, offset), file_data: await fileToBase64(fs.file) }
-        : { filename: null, timestamp: null, file_data: null };
-
-    await createTraining({
-      user_name:             null,
-      experiment_name:       null,
-      run_datetime:          nowDt,
-      model_version:         modelVersion,
-      forecast_steps:        ALL_STEPS,
-      include_preview_image: true,
-      experiment_memo:       memo || null,
-      input_files: {
-        file_t0: await makeFile(files.t0, -30),
-        file_t1: await makeFile(files.t1, -20),
-        file_t2: await makeFile(files.t2, -10),
-        file_t3: await makeFile(files.t3,   0),
-      },
-    });
-    refreshTrain();
-  };
+  // 학습 제출: 개발 미정 — 아래 코드 주석 처리
+  // const handleSubmitTraining = async (...) => { ... };
 
   return (
     <Layout>
-      {showModal && mode === 'experiment' && (
+      {showModal && (
         <NewExperimentModal onClose={() => setShowModal(false)} onSubmit={handleSubmitExperiment} models={models} />
-      )}
-      {showModal && mode === 'training' && (
-        <NewTrainingModal onClose={() => setShowModal(false)} onSubmit={handleSubmitTraining} models={models} />
       )}
 
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">실험 / 학습 관리</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {mode === 'experiment'
-              ? 'QPF 모델 추론 실험을 생성하고 결과를 확인합니다.'
-              : '모델 학습 작업을 생성하고 실행 현황을 모니터링합니다.'}
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">실험 관리</h1>
+          <p className="text-sm text-gray-500 mt-0.5">QPF 모델 추론 실험을 생성하고 결과를 확인합니다.</p>
         </div>
-        <div className="flex items-center">
-          {/* 드롭다운 */}
-          <div className="relative">
-            <select
-              value={mode}
-              onChange={e => setMode(e.target.value as Mode)}
-              className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer"
-            >
-              <option value="experiment">실험</option>
-              <option value="training">학습</option>
-            </select>
-            <svg
-              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400"
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-          {/* 새 작업 버튼 (드롭다운 우측 10px) */}
-          <button
-            onClick={() => setShowModal(true)}
-            style={{ marginLeft: '10px' }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            {mode === 'experiment' ? '새 실험 진행' : '새 학습 진행'}
-          </button>
-        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          새 실험 진행
+        </button>
       </div>
 
-      {/* 컨텐츠 */}
-      {mode === 'experiment' ? (
-        <ExperimentContent jobs={expJobs} loading={expLoading} />
-      ) : (
-        <TrainingContent jobs={trainJobs} loading={trainLoading} onRefresh={refreshTrain} />
-      )}
+      {/* 실험 목록 */}
+      <ExperimentContent jobs={expJobs} loading={expLoading} />
+
+      {/* 학습 기능: 개발 미정 — 아래 코드 주석 처리 */}
+      {/* <TrainingContent jobs={trainJobs} loading={trainLoading} onRefresh={refreshTrain} /> */}
     </Layout>
   );
 }

@@ -261,9 +261,9 @@ export default function ExperimentResultDetail() {
           )}
 
           {/* 성능 지표 */}
-          {hasMetrics && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
+            {hasMetrics ? (
               <div className="space-y-0.5">
                 {Object.entries(detail!.metrics)
                   .filter(([k]) => SHOW_METRICS.has(k))
@@ -271,8 +271,21 @@ export default function ExperimentResultDetail() {
                     <MetricBar key={k} metricKey={k} value={v} />
                   ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col items-center justify-center py-4 gap-1.5">
+                <svg className="w-7 h-7 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <p className="text-xs text-gray-400 text-center">
+                  검증 지표가 없습니다
+                </p>
+                <p className="text-[11px] text-gray-300 text-center">
+                  MAE · RMSE · CSI는 백엔드 평가 스크립트 실행 후 제공됩니다
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* 모델 설정 */}
           {detail && (

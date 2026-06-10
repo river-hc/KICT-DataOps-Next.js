@@ -24,14 +24,22 @@ function fmtSize(bytes: number | null | undefined): string {
   return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-function handleDownload(a: Artifact) {
-  // /mock/ 경로는 정적 파일 직접 다운로드, 그 외 API 엔드포인트 사용
-  const url = a.file_path.startsWith('/mock/')
-    ? a.file_path
-    : `/api/v1/artifacts/${a.id}/download`;
+function handleDownload(a: Artifact, jobId: number | null) {
+  // /mock/ 경로는 public/ 정적 파일 직접 다운로드
+  // 그 외: GET /api/v1/trainings/{job_id}/files/{filename} 로 파일 서빙
+  // (GET /api/v1/artifacts/{id}/download 는 존재하지 않음)
+  let url: string;
+  if (a.file_path?.startsWith('/mock/')) {
+    url = a.file_path;
+  } else if (jobId != null && a.file_name) {
+    url = `/api/v1/trainings/${jobId}/files/${encodeURIComponent(a.file_name)}`;
+  } else {
+    alert('파일 경로를 확인할 수 없습니다.');
+    return;
+  }
   const link = document.createElement('a');
   link.href     = url;
-  link.download = a.file_name;
+  link.download = a.file_name ?? 'download';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -41,6 +49,7 @@ export default function Artifacts() {
   const [trainings, setTrainings]         = useState<TrainingJob[]>([]);
   const [artifacts, setArtifacts]         = useState<Artifact[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [loading, setLoading]             = useState(true);
   const [artLoading, setArtLoading]       = useState(false);
 
@@ -51,14 +60,16 @@ export default function Artifacts() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleRunSelect = async (runId: number) => {
-    setSelectedRunId(runId);
+  const handleRunSelect = async (job: TrainingJob) => {
+    if (job.run_id == null) return;
+    setSelectedRunId(job.run_id);
+    setSelectedJobId(job.job_id);
     setArtLoading(true);
     try {
-      const data = await getArtifactsByRun(runId);
+      const data = await getArtifactsByRun(job.run_id);
       setArtifacts(data);
     } catch {
-      setArtifacts(MOCK_ARTIFACTS[runId] ?? []);
+      setArtifacts(MOCK_ARTIFACTS[job.run_id] ?? []);
     } finally {
       setArtLoading(false);
     }
@@ -98,7 +109,7 @@ export default function Artifacts() {
               completed.map(t => (
                 <div
                   key={t.job_id}
-                  onClick={() => { if (t.run_id != null) handleRunSelect(t.run_id); }}
+                  onClick={() => handleRunSelect(t)}
                   className={`px-5 py-3.5 cursor-pointer transition-colors ${
                     selectedRunId === t.run_id
                       ? 'bg-blue-50 border-l-2 border-l-blue-500'
@@ -177,7 +188,7 @@ export default function Artifacts() {
 
                     {/* 다운로드 버튼 */}
                     <button
-                      onClick={() => handleDownload(a)}
+                      onClick={() => handleDownload(a, selectedJobId)}
                       className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-colors"
                       title="파일 다운로드"
                     >

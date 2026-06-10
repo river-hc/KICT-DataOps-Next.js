@@ -11,9 +11,8 @@ interface LoginResponse {
   username: string;
 }
 
-// Default credentials (in production, use environment variables)
-const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'admin';
-const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || 'admin123';
+const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'seongsimyoon';
+const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || '1234';
 
 export async function POST(req: Request) {
   const body = (await req.json()) as LoginRequest;
