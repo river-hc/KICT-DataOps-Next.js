@@ -29,13 +29,21 @@ export interface TrainingLog {
   logs: string[];
 }
 
+export interface TrainingResultParams {
+  model_version: string | null;
+  forecast_steps: number[] | null;
+  include_preview_image: boolean | null;
+  run_datetime: string | null;
+}
+
 export interface TrainingResult {
   job_id: number;
   run_id: number | null;
   status: string;
-  params: Record<string, unknown>;
-  metrics: Record<string, unknown>;
+  params: TrainingResultParams;
+  metrics: Record<string, number>;
   artifacts: Record<string, unknown>[];
+  asc_urls: Record<number, string>;
 }
 
 export interface Experiment {
@@ -85,13 +93,13 @@ export interface ModelVersion {
 }
 
 export interface GpuInfo {
-  index: number;
+  id: number;
   name: string;
-  utilization_percent: number;
-  memory_used_mb: number;
-  memory_total_mb: number;
-  memory_free_mb: number;
-  temperature_c: number | null;
+  utilization: number;
+  memory_used: number;
+  memory_total: number;
+  memory_free: number;
+  temperature: number | null;
 }
 
 export interface SystemStatus {

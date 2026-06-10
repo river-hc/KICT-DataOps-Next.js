@@ -286,8 +286,6 @@ export const MOCK_TRAINING_DETAILS: Record<number, TrainingRunDetail> = {
 
 // ─── 아티팩트 목 데이터 ───────────────────────────────────────────────────────
 
-import type { Artifact } from './api';
-
 // run_id별 아티팩트 목록 (API 실패 시 폴백)
 // file_path가 /mock/ 로 시작하면 정적 파일 직접 다운로드, 아니면 API URL 사용
 export const MOCK_ARTIFACTS: Record<number, Artifact[]> = {

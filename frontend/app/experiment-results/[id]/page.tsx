@@ -1,18 +1,14 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import AscViewer from '@/lib/AscViewer';
-import {
-  MOCK_TRAININGS,
-  MOCK_DETAILS,
-  fmtDateTime,
-  fmtDuration,
-  fmtRunDatetime,
-} from '@/lib/mockData';
+import { getTraining, getTrainingResult, getTrainingLogs, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { fmtDateTime, fmtDuration, fmtRunDatetime } from '@/lib/mockData';
 
-// ─── 지표 메타 (POD / FAR / BIAS 제거) ───────────────────────────────────────
+// ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
 const METRIC_META: Record<string, { label: string; unit: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    unit: 'mm', max: 6, higherBetter: false },
@@ -46,17 +42,32 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
   );
 }
 
-// ─── 메인 ────────────────────────────────────────────────────────────────────
+// ─── 메인 ─────────────────────────────────────────────────────────────────────
 
 export default function ExperimentResultDetail() {
-  const params  = useParams<{ id: string }>();
-  const { id }  = params;
-  const jobId   = typeof id === 'string' ? parseInt(id, 10) : null;
+  const params = useParams<{ id: string }>();
+  const jobId  = params.id ? parseInt(params.id, 10) : null;
 
-  const job    = jobId != null ? MOCK_TRAININGS.find(j => j.job_id === jobId) ?? null : null;
-  const detail = jobId != null ? (MOCK_DETAILS[jobId] ?? null) : null;
+  const [job,     setJob]     = useState<TrainingJob | null>(null);
+  const [detail,  setDetail]  = useState<TrainingResult | null>(null);
+  const [logs,    setLogs]    = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  if (jobId == null || !job) {
+  useEffect(() => {
+    if (jobId == null) return;
+    Promise.all([
+      getTraining(jobId).catch(() => null),
+      getTrainingResult(jobId).catch(() => null),
+      getTrainingLogs(jobId).catch(() => null),
+    ]).then(([j, d, l]) => {
+      setJob(j);
+      setDetail(d);
+      setLogs(l?.logs ?? []);
+      setLoading(false);
+    });
+  }, [jobId]);
+
+  if (jobId == null || (!loading && !job)) {
     return (
       <Layout>
         <div className="flex flex-col items-center justify-center py-24 text-gray-400">
@@ -73,12 +84,27 @@ export default function ExperimentResultDetail() {
     );
   }
 
-  const steps = detail?.params.forecast_steps ?? [];
-  const stepMin = steps.length > 0 ? Math.min(...steps) : null;
-  const stepMax = steps.length > 0 ? Math.max(...steps) : null;
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-24">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
+
+  const steps        = detail?.params.forecast_steps ?? [];
+  const stepMin      = steps.length > 0 ? Math.min(...steps) : null;
+  const stepMax      = steps.length > 0 ? Math.max(...steps) : null;
   const forecastLabel = stepMin != null && stepMax != null
     ? stepMin === stepMax ? `${stepMin}분` : `${stepMin}분 ~ ${stepMax}분`
     : '-';
+
+  const hasMetrics = detail?.metrics && Object.keys(detail.metrics).length > 0;
+  const ascUrls    = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0
+    ? detail.asc_urls
+    : undefined;
 
   return (
     <Layout>
@@ -98,14 +124,14 @@ export default function ExperimentResultDetail() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
-                COMPLETED
+                {job?.status ?? 'COMPLETED'}
               </span>
-              {job.run_id != null && (
+              {job?.run_id != null && (
                 <span className="font-mono text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded">
                   Run #{job.run_id}
                 </span>
               )}
-              {detail && (
+              {detail?.params.model_version && (
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                   detail.params.model_version === 'v3'
                     ? 'bg-violet-50 text-violet-700 border border-violet-100'
@@ -115,9 +141,9 @@ export default function ExperimentResultDetail() {
                 </span>
               )}
             </div>
-            <h1 className="text-xl font-bold text-gray-900">{job.experiment_name}</h1>
+            <h1 className="text-xl font-bold text-gray-900">{job?.experiment_name}</h1>
             <p className="text-xs text-gray-400 mt-0.5">
-              {job.user_name} · {job.mode} 모드 · {fmtDateTime(job.started_at)} 시작 · 소요 {fmtDuration(job.started_at, job.finished_at)}
+              {job?.user_name} · {job?.mode} 모드 · {fmtDateTime(job?.started_at ?? null)} 시작 · 소요 {fmtDuration(job?.started_at ?? null, job?.finished_at ?? null)}
             </p>
           </div>
         </div>
@@ -128,8 +154,8 @@ export default function ExperimentResultDetail() {
 
         {/* 왼쪽: ASC 뷰어 */}
         <div>
-          {detail?.ascUrls ? (
-            <AscViewer steps={detail.params.forecast_steps} ascUrls={detail.ascUrls} />
+          {ascUrls && steps.length > 0 ? (
+            <AscViewer steps={steps} ascUrls={ascUrls} />
           ) : (
             <div className="flex items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-200 min-h-[300px]">
               <div className="text-center">
@@ -147,11 +173,11 @@ export default function ExperimentResultDetail() {
         <div className="flex flex-col gap-4">
 
           {/* 성능 지표 */}
-          {detail?.metrics && (
+          {hasMetrics && (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
               <div className="space-y-0.5">
-                {Object.entries(detail.metrics)
+                {Object.entries(detail!.metrics)
                   .filter(([k]) => SHOW_METRICS.has(k))
                   .map(([k, v]) => (
                     <MetricBar key={k} metricKey={k} value={v} />
@@ -175,7 +201,9 @@ export default function ExperimentResultDetail() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">운용 시점</span>
-                  <span className="text-xs font-medium text-gray-900">{fmtRunDatetime(detail.params.run_datetime)}</span>
+                  <span className="text-xs font-medium text-gray-900">
+                    {detail.params.run_datetime ? fmtRunDatetime(detail.params.run_datetime) : '-'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">예측 선행시간</span>
@@ -193,26 +221,52 @@ export default function ExperimentResultDetail() {
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">요청자</span>
-                <span className="text-xs font-medium text-gray-900">{job.user_name}</span>
+                <span className="text-xs font-medium text-gray-900">{job?.user_name}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">등록 시각</span>
-                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job.created_at)}</span>
+                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job?.created_at ?? null)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">시작 시각</span>
-                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job.started_at)}</span>
+                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job?.started_at ?? null)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">완료 시각</span>
-                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job.finished_at)}</span>
+                <span className="text-xs font-medium text-gray-900">{fmtDateTime(job?.finished_at ?? null)}</span>
               </div>
               <div className="flex justify-between items-center pt-1.5 border-t border-gray-100">
                 <span className="text-xs text-gray-500">소요 시간</span>
-                <span className="text-xs font-bold text-blue-700">{fmtDuration(job.started_at, job.finished_at)}</span>
+                <span className="text-xs font-bold text-blue-700">{fmtDuration(job?.started_at ?? null, job?.finished_at ?? null)}</span>
               </div>
             </div>
           </div>
+
+          {/* 실행 로그 */}
+          {logs.length > 0 && (
+            <div className="rounded border border-gray-600 overflow-hidden shadow-lg">
+              <div className="bg-gray-700 px-3 py-1.5 flex items-center justify-between">
+                <span className="text-xs text-gray-200 font-sans">C:\KICT-DataOps\train.log</span>
+                <div className="flex items-center gap-1 text-gray-400 text-xs font-sans select-none">
+                  <span className="px-1.5 hover:bg-gray-600 cursor-default">─</span>
+                  <span className="px-1.5 hover:bg-gray-600 cursor-default">□</span>
+                  <span className="px-1.5 hover:bg-red-600 hover:text-white cursor-default">✕</span>
+                </div>
+              </div>
+              <div className="bg-black p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5 space-y-px">
+                {logs.map((line, i) => (
+                  <div key={i} className={
+                    line.startsWith('[INFO]')  ? 'text-gray-200' :
+                    line.startsWith('[WARN]')  ? 'text-yellow-300' :
+                    line.startsWith('[ERROR]') ? 'text-red-400' :
+                    'text-gray-500'
+                  }>
+                    <span className="text-gray-500 mr-2 select-none">&gt;</span>{line}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

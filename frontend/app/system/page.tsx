@@ -81,25 +81,25 @@ export default function System() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {system.gpus.map(gpu => (
-                <tr key={gpu.index} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs text-gray-600">#{gpu.index}</td>
+                <tr key={gpu.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-5 py-3 font-mono text-xs text-gray-600">#{gpu.id}</td>
                   <td className="px-5 py-3 font-medium text-gray-800">{gpu.name}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 bg-gray-200 rounded-full h-1.5 w-16">
                         <div
                           className="h-1.5 rounded-full bg-blue-500"
-                          style={{ width: `${gpu.utilization_percent}%` }}
+                          style={{ width: `${gpu.utilization}%` }}
                         />
                       </div>
-                      <span className="text-gray-700 text-xs">{gpu.utilization_percent}%</span>
+                      <span className="text-gray-700 text-xs">{gpu.utilization}%</span>
                     </div>
                   </td>
                   <td className="px-5 py-3 text-gray-600">
-                    {(gpu.memory_used_mb / 1024).toFixed(1)} / {(gpu.memory_total_mb / 1024).toFixed(1)} GB
+                    {(gpu.memory_used / 1024).toFixed(1)} / {(gpu.memory_total / 1024).toFixed(1)} GB
                   </td>
-                  <td className="px-5 py-3 text-gray-600">{(gpu.memory_free_mb / 1024).toFixed(1)} GB</td>
-                  <td className="px-5 py-3 text-gray-600">{gpu.temperature_c != null ? `${gpu.temperature_c}°C` : '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{(gpu.memory_free / 1024).toFixed(1)} GB</td>
+                  <td className="px-5 py-3 text-gray-600">{gpu.temperature != null ? `${gpu.temperature}°C` : '-'}</td>
                 </tr>
               ))}
             </tbody>
