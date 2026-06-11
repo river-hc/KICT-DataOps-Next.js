@@ -99,24 +99,40 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── 진행률 바 ────────────────────────────────────────────────────────────────
 
-function ProgressBar({ progress, size = 'sm' }: { progress: number | null; size?: 'sm' | 'md' }) {
-  const h   = size === 'md' ? 'h-2' : 'h-1.5';
-  const pct = progress ?? 0;
+function ProgressBar({
+  progress, currentEpoch, totalEpochs, size = 'sm',
+}: {
+  progress: number | null;
+  currentEpoch?: number | null;
+  totalEpochs?: number | null;
+  size?: 'sm' | 'md';
+}) {
+  const h = size === 'md' ? 'h-2' : 'h-1.5';
+
+  // epoch 정보 우선, 없으면 progress 필드 사용
+  let pct: number | null = null;
+  if (currentEpoch != null && totalEpochs != null && totalEpochs > 0) {
+    pct = Math.min(100, Math.round((currentEpoch / totalEpochs) * 100));
+  } else if (progress != null && progress > 0) {
+    pct = progress;
+  }
+
+  const isIndeterminate = pct === null || pct === 0;
+
   return (
     <div className="flex items-center gap-2">
       <div className={`flex-1 ${h} bg-gray-200 rounded-full overflow-hidden relative`}>
-        {/* 실제 채움 바 */}
-        <div
-          className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500"
-          style={{ width: `${pct}%` }}
-        />
-        {/* 좌→우 shimmer (RUNNING 중 활동 표시) */}
-        <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
-          <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-white/60 to-transparent animate-shimmer-lr" />
-        </div>
+        {isIndeterminate ? (
+          <div className="progress-indeterminate" />
+        ) : (
+          <div
+            className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        )}
       </div>
-      <span className="text-xs text-gray-500 tabular-nums w-7 text-right flex-shrink-0">
-        {pct}%
+      <span className="text-xs tabular-nums w-7 text-right flex-shrink-0 text-gray-500">
+        {isIndeterminate ? <span className="text-gray-400 tracking-widest">···</span> : `${pct}%`}
       </span>
     </div>
   );
@@ -446,8 +462,14 @@ function NewTrainingModal({
 // ─── 실험 목록 ────────────────────────────────────────────────────────────────
 
 function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: boolean }) {
-  const [filter,     setFilter]     = useState('ALL');
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [filter,       setFilter]       = useState('ALL');
+  const [selectedId,   setSelectedId]   = useState<number | null>(null);
+  const [logs,         setLogs]         = useState<string[]>([]);
+  const [logsLoading,  setLogsLoading]  = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  const selectedJob       = jobs.find(j => j.job_id === selectedId) ?? null;
+  const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
 
   const filtered = filter === 'ALL'
     ? jobs
@@ -463,6 +485,44 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
     { key: 'COMPLETED', label: '완료',      cls: 'bg-blue-500 text-white' },
     { key: 'FAILED',    label: '실패/취소', cls: 'bg-red-400 text-white' },
   ];
+
+  useEffect(() => {
+    if (selectedId == null || !isSelectedRunning) {
+      setLogs([]);
+      setLogsLoading(false);
+      return;
+    }
+
+    let ignore = false;
+    setLogsLoading(true);
+    getTrainingLogs(selectedId)
+      .then(r => {
+        if (!ignore) setLogs(r.logs);
+      })
+      .catch(() => {
+        if (!ignore) setLogs([]);
+      })
+      .finally(() => {
+        if (ignore) return;
+        setLogsLoading(false);
+        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      });
+
+    return () => { ignore = true; };
+  }, [selectedId, isSelectedRunning]);
+
+  useEffect(() => {
+    if (selectedId == null || !isSelectedRunning) return;
+    const id = setInterval(() => {
+      getTrainingLogs(selectedId)
+        .then(r => {
+          setLogs(r.logs);
+          setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        })
+        .catch(() => {});
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [selectedId, isSelectedRunning]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -515,7 +575,7 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                 <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
                 <td className="px-5 py-3 min-w-[120px]">
                   {s === 'RUNNING'
-                    ? <ProgressBar progress={job.progress} />
+                    ? <ProgressBar progress={job.progress} currentEpoch={job.current_epoch} totalEpochs={job.total_epochs} />
                     : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
@@ -547,12 +607,7 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                       <div className="col-span-2">
                         <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
                         <div className="flex items-center gap-2">
-                          <ProgressBar progress={job.progress} size="md" />
-                          {job.current_epoch != null && (
-                            <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
-                              {job.current_epoch}/{job.total_epochs} step
-                            </span>
-                          )}
+                          <ProgressBar progress={job.progress} currentEpoch={job.current_epoch} totalEpochs={job.total_epochs} size="md" />
                         </div>
                       </div>
                     )}
@@ -567,6 +622,27 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                       </svg>
                     </Link>
+                  )}
+                  {s === 'RUNNING' && (
+                    <div className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+                      <div className="px-5 py-3 border-b border-gray-700 flex items-center gap-3">
+                        <span className="text-sm font-semibold text-gray-200 flex-1">
+                          로그 — Job #{job.job_id}
+                          <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 font-normal">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            실시간
+                          </span>
+                        </span>
+                        {logsLoading && <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+                      </div>
+                      <div className="p-4 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 leading-5 space-y-px">
+                        {logs.length === 0
+                          ? <span className="text-gray-500">로그를 불러오는 중이거나 아직 기록된 로그가 없습니다.</span>
+                          : logs.map((line, i) => <div key={i}>{line}</div>)
+                        }
+                        <div ref={logsEndRef} />
+                      </div>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -689,7 +765,7 @@ function TrainingContent({
                 <td className="px-5 py-3"><StatusBadge status={job.status} /></td>
                 <td className="px-5 py-3 min-w-[120px]">
                   {s === 'RUNNING'
-                    ? <ProgressBar progress={job.progress} />
+                    ? <ProgressBar progress={job.progress} currentEpoch={job.current_epoch} totalEpochs={job.total_epochs} />
                     : <span className="text-xs text-gray-300">—</span>}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
@@ -722,12 +798,7 @@ function TrainingContent({
                       <div className="col-span-2">
                         <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
                         <div className="flex items-center gap-2">
-                          <ProgressBar progress={job.progress} size="md" />
-                          {job.current_epoch != null && (
-                            <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
-                              {job.current_epoch}/{job.total_epochs} step
-                            </span>
-                          )}
+                          <ProgressBar progress={job.progress} currentEpoch={job.current_epoch} totalEpochs={job.total_epochs} size="md" />
                         </div>
                       </div>
                     )}

@@ -22,7 +22,7 @@
   --logo-text:           #2563eb;
   --status-text:         #16a34a;
 }
-
+ 
 /* ── Design B: Dark Sidebar + Light Content (dark) ─────── */
 [data-theme="dark"] {
   --layout-bg:           #f1f5f9;
@@ -102,6 +102,24 @@
   --login-border:     #e2e8f0;
   --login-input-bg:   #ffffff;
   --login-input-text: #1e293b;
+}
+
+/* ══════════════════════════════════════════════════════════
+   Progress Bar — indeterminate animation
+══════════════════════════════════════════════════════════ */
+
+@keyframes progress-slide {
+  0%   { left: -45%; width: 45%; }
+  60%  { left: 100%; width: 45%; }
+  100% { left: 100%; width: 45%; }
+}
+
+.progress-indeterminate {
+  position: absolute;
+  inset-block: 0;
+  background: #10b981;
+  border-radius: 9999px;
+  animation: progress-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .login-input:focus {
