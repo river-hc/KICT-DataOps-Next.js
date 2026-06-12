@@ -2,6 +2,7 @@
 
 import { ReactNode, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import Header from './Header';
 import Footer from './Footer';
@@ -126,9 +127,16 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
         {/* 로고 — 헤더와 동일 높이(h-16)로 하단 경계선 일치 */}
         <div className="h-16 flex-shrink-0 flex items-center pl-4 pr-1 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
           {open && (
-            <span className="flex-1 min-w-0 font-bold text-lg truncate" style={{ color: 'var(--logo-text)' }}>
-              DataOps
-            </span>
+            <div className="flex-1 min-w-0 flex items-center">
+              <Image
+                src="/Images/KICT_visual_txt3.png"
+                alt="KICT DataOps"
+                width={183}
+                height={55}
+                priority
+                className="h-8 w-auto"
+              />
+            </div>
           )}
           <button
             onClick={() => setOpen(v => !v)}
