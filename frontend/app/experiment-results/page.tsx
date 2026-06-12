@@ -57,11 +57,7 @@ export default function ExperimentResults() {
 
   return (
     <Layout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">실험 결과</h1>
-        <p className="text-sm text-gray-500 mt-0.5">완료된 QPF 실험의 성능 지표와 예측 이미지를 확인합니다.</p>
-      </div>
-
+      {/* 페이지 타이틀은 공통 헤더가 표시 */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <SummaryCard
           label="완료 실험 수"

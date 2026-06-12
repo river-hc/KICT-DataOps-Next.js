@@ -3,7 +3,8 @@
 import { ReactNode, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import UserPopup from './UserPopup';
+import Header from './Header';
+import Footer from './Footer';
 
 const THEME = process.env.NEXT_PUBLIC_THEME;
 
@@ -106,28 +107,24 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
 
   const isGroupActive = (children: NavItem[]) => children.some(c => isItemActive(c.href));
 
-  const headerTitle = (() => {
-    for (const e of entries) {
-      if ('type' in e) {
-        const match = e.children.find(c => c.href === pathname);
-        if (match) return match.name;
-      } else if (e.href === pathname) {
-        return e.name;
-      }
-    }
-    return 'DataOps Platform';
-  })();
+  // 헤더 타이틀은 lib/Header.tsx의 ROUTE_TITLES에서 라우트 기반으로 결정
 
   return (
-    <div className="h-screen flex overflow-hidden" style={{ background: 'var(--layout-bg)' }}>
+    // 헤더·푸터는 viewport 최상단·최하단 고정, 스크롤은 main 내부에서만 발생.
+    // 높이는 100dvh(동적 viewport) 우선 — 해상도 변경 시 100vh 오차로 푸터 아래 여백이 생기는 것 방지.
+    // dvh 미지원 브라우저는 h-screen(100vh)으로 폴백.
+    <div
+      className="h-screen flex overflow-hidden"
+      style={{ background: 'var(--layout-bg)', height: '100dvh' }}
+    >
 
       {/* 사이드바 */}
       <aside
         className={`${open ? 'w-56' : 'w-16'} transition-all duration-300 flex flex-col flex-shrink-0`}
         style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--sidebar-border)' }}
       >
-        {/* 로고 */}
-        <div className="flex items-center py-4 pl-4 pr-1 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
+        {/* 로고 — 헤더와 동일 높이(h-16)로 하단 경계선 일치 */}
+        <div className="h-16 flex-shrink-0 flex items-center pl-4 pr-1 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
           {open && (
             <span className="flex-1 min-w-0 font-bold text-lg truncate" style={{ color: 'var(--logo-text)' }}>
               DataOps
@@ -247,9 +244,9 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
           })}
         </nav>
 
-        {/* 상태 */}
+        {/* 상태 — 푸터와 동일 높이(h-12)로 상단 경계선 일치 */}
         {open && (
-          <div className="p-4 border-t" style={{ borderColor: 'var(--sidebar-border)' }}>
+          <div className="h-12 flex-shrink-0 flex items-center px-4 border-t" style={{ borderColor: 'var(--sidebar-border)' }}>
             <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--status-text)' }}>
               <span className="w-2 h-2 rounded-full bg-current animate-pulse flex-shrink-0" />
               <span>System Online</span>
@@ -261,36 +258,16 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
       {/* 오른쪽 패널 */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* 헤더 */}
-        <header
-          className="flex-shrink-0 border-b px-6 py-5"
-          style={{
-            background:  'var(--header-bg)',
-            borderColor: 'var(--header-border)',
-            boxShadow:   '0 1px 3px rgba(0,0,0,0.06)',
-          }}
-        >
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
-              {headerTitle}
-            </h1>
-            <UserPopup />
-          </div>
-        </header>
+        {/* 전역 헤더 (lib/Header.tsx) — viewport 최상단 고정 */}
+        <Header />
 
-        {/* 바디 */}
-        <main className={`flex-1 min-h-0 ${fullHeight ? 'overflow-hidden' : 'p-6 overflow-auto'}`}>
+        {/* 바디 — 콘텐츠가 모서리에 붙지 않도록 모든 페이지 공통 p-8 여백 */}
+        <main className={`flex-1 min-h-0 ${fullHeight ? 'overflow-hidden' : 'p-8 overflow-auto'}`}>
           {children}
         </main>
 
-        {/* 푸터 */}
-        <footer
-          className="flex-shrink-0 border-t h-12 px-6 flex items-center justify-between"
-          style={{ background: 'var(--header-bg)', borderColor: 'var(--header-border)' }}
-        >
-          <span className="text-xs" style={{ color: 'var(--sidebar-text)' }}>DataOps Platform</span>
-          <span className="text-xs" style={{ color: 'var(--sidebar-text)' }}>v1.0.0 &nbsp;·&nbsp; &copy; 2026 KICT</span>
-        </footer>
+        {/* 전역 푸터 (lib/Footer.tsx) — viewport 최하단 고정 */}
+        <Footer />
 
       </div>
     </div>

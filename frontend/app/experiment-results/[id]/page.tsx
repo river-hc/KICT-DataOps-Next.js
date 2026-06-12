@@ -13,6 +13,8 @@ import { fmtDateTime, fmtDuration, fmtRunDatetime } from '@/lib/mockData';
 const METRIC_META: Record<string, { label: string; unit: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    unit: 'mm', max: 6, higherBetter: false },
   rmse:   { label: 'RMSE',  unit: 'mm', max: 8, higherBetter: false },
+  // 추론 전체 단일 CSI (2026-06-12 피드백) — 백엔드 변경 전까지는 기존 선행시간별 키 병행 표시
+  csi:    { label: 'CSI',    unit: '',  max: 1, higherBetter: true  },
   csi_10: { label: 'CSI 10', unit: '',  max: 1, higherBetter: true  },
   csi_20: { label: 'CSI 20', unit: '',  max: 1, higherBetter: true  },
   csi_30: { label: 'CSI 30', unit: '',  max: 1, higherBetter: true  },
@@ -114,17 +116,21 @@ export default function ExperimentResultDetail() {
     : '-';
 
   const hasMetrics = detail?.metrics && Object.keys(detail.metrics).length > 0;
+  const metricSources = detail?.metric_sources;
+  const matchedTargetCount = metricSources?.matched_targets
+    ? Object.keys(metricSources.matched_targets).length
+    : 0;
   const ascUrls    = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0
     ? detail.asc_urls
     : undefined;
 
   return (
     <Layout>
-      {/* 뒤로가기 + 헤더 */}
-      <div className="mb-6">
+      {/* 뒤로가기 + 헤더 — 제목 좌측 / 상태 배지 우측, 사용자·모드·날짜는 실행 일정 카드와 중복이라 미표시 */}
+      <div className="mb-4">
         <Link
           href="/experiments"
-          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-3"
         >
           <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 4l-5 4 5 4" />
@@ -132,40 +138,46 @@ export default function ExperimentResultDetail() {
           실험 / 학습 목록
         </Link>
 
-        <div className="flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
-                {job?.status ?? 'COMPLETED'}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{job?.experiment_name}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            {(() => {
+              const s = (job?.status ?? 'COMPLETED').toUpperCase();
+              const cls =
+                s === 'COMPLETED' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                s === 'FAILED'    ? 'bg-red-100 text-red-800 border-red-200' :
+                s === 'RUNNING'   ? 'bg-green-100 text-green-800 border-green-200' :
+                s === 'QUEUED'    ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                'bg-gray-100 text-gray-600 border-gray-200';
+              return (
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>
+                  {s}
+                </span>
+              );
+            })()}
+            {job?.run_id != null && (
+              <span className="font-mono text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded">
+                Run #{job.run_id}
               </span>
-              {job?.run_id != null && (
-                <span className="font-mono text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded">
-                  Run #{job.run_id}
-                </span>
-              )}
-              {detail?.params.model_version && (
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                  detail.params.model_version === 'v3'
-                    ? 'bg-violet-50 text-violet-700 border border-violet-100'
-                    : 'bg-amber-50 text-amber-700 border border-amber-100'
-                }`}>
-                  {detail.params.model_version}
-                </span>
-              )}
-            </div>
-            <h1 className="text-xl font-bold text-gray-900">{job?.experiment_name}</h1>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {job?.user_name} · {job?.mode} 모드 · {fmtDateTime(job?.started_at ?? null)} 시작 · 소요 {fmtDuration(job?.started_at ?? null, job?.finished_at ?? null)}
-            </p>
+            )}
+            {detail?.params.model_version && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                detail.params.model_version === 'v3'
+                  ? 'bg-violet-50 text-violet-700 border border-violet-100'
+                  : 'bg-amber-50 text-amber-700 border border-amber-100'
+              }`}>
+                {detail.params.model_version}
+              </span>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 본문 2컬럼 */}
-      <div className="grid grid-cols-2 gap-6">
+      {/* 본문 2컬럼 — ASC 뷰어 : 우측 컬럼 = 3 : 7 (2026-06-12 피드백) */}
+      <div className="grid grid-cols-10 gap-4">
 
         {/* 왼쪽: ASC 뷰어 (캔버스만, 컨트롤 숨김) */}
-        <div>
+        <div className="col-span-3">
           {ascUrls && steps.length > 0 ? (
             <AscViewer
               steps={steps}
@@ -192,12 +204,12 @@ export default function ExperimentResultDetail() {
         </div>
 
         {/* 오른쪽: 재생 컨트롤 + 지표 + 설정 */}
-        <div className="flex flex-col gap-4">
+        <div className="col-span-7 flex flex-col gap-3">
 
           {/* 재생 컨트롤 */}
           {steps.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <div className="flex items-center justify-between mb-3">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+              <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">재생 컨트롤</p>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-gray-800">T+{steps[frameIdx]}분</span>
@@ -206,7 +218,7 @@ export default function ExperimentResultDetail() {
               </div>
 
               {/* prev / play / next + 속도 */}
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <button onClick={goPrev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
                   <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M11 4L5 8l6 4V4z"/></svg>
                 </button>
@@ -234,7 +246,7 @@ export default function ExperimentResultDetail() {
               </div>
 
               {/* 타임라인 */}
-              <div className="flex flex-wrap gap-1.5 mb-4">
+              <div className="flex flex-wrap gap-1.5 mb-3">
                 {steps.map((step, i) => (
                   <button key={step}
                     onClick={() => { setFrameIdx(i); setIsPlaying(false); }}
@@ -261,8 +273,8 @@ export default function ExperimentResultDetail() {
           )}
 
           {/* 성능 지표 */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">성능 지표</p>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">성능 지표</p>
             {hasMetrics ? (
               <div className="space-y-0.5">
                 {Object.entries(detail!.metrics)
@@ -289,8 +301,8 @@ export default function ExperimentResultDetail() {
 
           {/* 모델 설정 */}
           {detail && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">모델 설정</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">모델 설정</p>
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-500">모델 버전</span>
@@ -312,9 +324,34 @@ export default function ExperimentResultDetail() {
             </div>
           )}
 
+          {/* 검증 데이터 */}
+          {metricSources && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">검증 데이터</p>
+              <div className="space-y-2">
+                <div className="flex justify-between items-start gap-3">
+                  <span className="text-xs text-gray-500 flex-shrink-0">정답 경로</span>
+                  <span className="text-xs font-medium text-gray-900 text-right break-all">
+                    {metricSources.observation_dataset_dir ?? '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">매칭 파일</span>
+                  <span className="text-xs font-semibold text-emerald-700">{matchedTargetCount}개</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">누락 step</span>
+                  <span className="text-xs font-medium text-gray-900">
+                    {metricSources.missing_steps?.length ? metricSources.missing_steps.join(', ') : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 실행 일정 */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">실행 일정</p>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">실행 일정</p>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">요청자</span>
@@ -339,29 +376,27 @@ export default function ExperimentResultDetail() {
             </div>
           </div>
 
+          {/* 메모 — 실험 등록 시 작성 (experiment_memo는 백엔드 응답 노출 대기, request.md 항목 9) */}
+          {detail?.params.experiment_memo && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
+              <p className="text-xs text-gray-700 whitespace-pre-wrap">{detail.params.experiment_memo}</p>
+            </div>
+          )}
+
           {/* 실행 로그 */}
           {logs.length > 0 && (
-            <div className="rounded border border-gray-600 overflow-hidden shadow-lg">
-              <div className="bg-gray-700 px-3 py-1.5 flex items-center justify-between">
-                <span className="text-xs text-gray-200 font-sans">C:\KICT-DataOps\train.log</span>
-                <div className="flex items-center gap-1 text-gray-400 text-xs font-sans select-none">
-                  <span className="px-1.5 hover:bg-gray-600 cursor-default">─</span>
-                  <span className="px-1.5 hover:bg-gray-600 cursor-default">□</span>
-                  <span className="px-1.5 hover:bg-red-600 hover:text-white cursor-default">✕</span>
+            <div className="rounded-xl bg-black p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5">
+              {logs.map((line, i) => (
+                <div key={i} className={
+                  line.startsWith('[INFO]')  ? 'text-gray-200' :
+                  line.startsWith('[WARN]')  ? 'text-yellow-300' :
+                  line.startsWith('[ERROR]') ? 'text-red-400' :
+                  'text-gray-500'
+                }>
+                  {line}
                 </div>
-              </div>
-              <div className="bg-black p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5 space-y-px">
-                {logs.map((line, i) => (
-                  <div key={i} className={
-                    line.startsWith('[INFO]')  ? 'text-gray-200' :
-                    line.startsWith('[WARN]')  ? 'text-yellow-300' :
-                    line.startsWith('[ERROR]') ? 'text-red-400' :
-                    'text-gray-500'
-                  }>
-                    <span className="text-gray-500 mr-2 select-none">&gt;</span>{line}
-                  </div>
-                ))}
-              </div>
+              ))}
             </div>
           )}
 

@@ -11,6 +11,13 @@ backend/
 backend-temp/
 !backend-temp/ .gitkeep
 
+# Backend 내부 자산 — 추론 패키지(QGIS 플러그인 출처)·모델 가중치·레이더 데이터 일체 업로드 금지
+kict_rain_ai/
+*.tflite
+*.h5
+*.pt
+RDR_CMP_HSP_PUB_*.asc
+
 # 환경설정 (민감정보)
 .env
 *.env
@@ -50,3 +57,4 @@ frontend/public/mock/
 BACKEND_REQUESTS.md
 API.md
 request.md
+request_model.md

@@ -5,11 +5,11 @@ import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
   getExperimentJobs, getModels,
-  getTrainingLogs, createExperimentJob,
+  getTrainingLogs, createExperimentJob, getObservationDatasets, createObservationDataset,
   // 학습 기능: 개발 미정 — getTrainings, createTraining 주석 처리
   // getTrainings, createTraining,
   fileToBase64, calculateTimestamp,
-  type TrainingJob, type AscFileInput, type ModelVersion,
+  type TrainingJob, type AscFileInput, type ModelVersion, type ObservationDataset,
 } from '@/lib/api';
 import { MOCK_EXPERIMENT_JOBS } from '@/lib/mockData';
 // 학습 기능: 개발 미정 — MOCK_TRAINING_JOBS 주석 처리
@@ -60,6 +60,21 @@ function getNowDt(): string {
   const now = new Date();
   const p   = (n: number) => String(n).padStart(2, '0');
   return `${now.getFullYear()}${p(now.getMonth()+1)}${p(now.getDate())}${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+function toApiRunDatetime(compactDt: string): string {
+  return `${compactDt.slice(0, 4)}-${compactDt.slice(4, 6)}-${compactDt.slice(6, 8)}T${compactDt.slice(8, 10)}:${compactDt.slice(10, 12)}:00`;
+}
+
+function getCompactDtFromFilename(filename: string | null): string | null {
+  if (!filename) return null;
+  const compact = filename.match(/(20\d{10})/);
+  if (compact) return compact[1];
+
+  const separated = filename.match(/(20\d{2})[-_]?(\d{2})[-_]?(\d{2})[-_T]?(\d{2})[-_]?(\d{2})/);
+  if (!separated) return null;
+  const [, y, m, d, h, min] = separated;
+  return `${y}${m}${d}${h}${min}`;
 }
 
 function fmtDur(start: string | null, end: string | null): string {
@@ -187,34 +202,68 @@ function FileSlot({
 
 // ─── 새 실험 모달 (Task 3) ─────────────────────────────────────────────────────
 // 제거: 실험명, 운용 시점, 예측 선행시간 버튼, 미리보기 토글
-// 고정: include_preview_image=true, forecast_steps=전체 18개, run_datetime=현재 시각
+// 고정: include_preview_image=true, forecast_steps=전체 18개
+// run_datetime: file_t3 파일명(QPE_YYYYMMDDHHMM.asc) 기준, 없으면 현재 시각
 // 통합: 메모 + 태그 → TagInput
 
 function NewExperimentModal({
-  onClose, onSubmit, models,
+  onClose, onSubmit, models, observationDatasets, onObservationDatasetUploaded,
 }: {
   onClose: () => void;
-  onSubmit: (files: FormFiles, modelVersion: string, mode: 'single'|'multi', memo: string) => Promise<void>;
+  onSubmit: (files: FormFiles, modelVersion: string, memo: string, observationDatasetId: number | null) => Promise<void>;
   models: ModelVersion[];
+  observationDatasets: ObservationDataset[];
+  onObservationDatasetUploaded: (dataset: ObservationDataset) => void;
 }) {
   const [modelVersion, setModelVersion] = useState<string>(() => models[0]?.version ?? '');
-  const [runMode,      setRunMode]      = useState<'single'|'multi'>(() => {
-    const arch = models[0]?.metrics?.architecture as string | undefined;
-    return arch === 'multi' ? 'multi' : 'single';
-  });
   const [files,        setFiles]        = useState<FormFiles>(EMPTY_FILES);
   const [memo,         setMemo]         = useState('');
   const [submitting,   setSubmitting]   = useState(false);
   const [error,        setError]        = useState<string | null>(null);
+  const [observationDatasetId, setObservationDatasetId] = useState<number | null>(null);
+  const [showDatasetUpload, setShowDatasetUpload] = useState(false);
+  const [datasetName,       setDatasetName]       = useState('');
+  const [datasetFolderName, setDatasetFolderName] = useState('');
+  const [datasetDescription,setDatasetDescription]= useState('');
+  const [datasetFiles,      setDatasetFiles]      = useState<File[]>([]);
+  const [datasetUploading,  setDatasetUploading]  = useState(false);
+  const [datasetUploadError,setDatasetUploadError]= useState<string | null>(null);
 
   const handleFile = (key: SlotKey) => (file: File | null) =>
     setFiles(prev => ({ ...prev, [key]: file ? { file, name: file.name } : EMPTY_FILE }));
 
   const handleSubmit = async () => {
     setSubmitting(true); setError(null);
-    try   { await onSubmit(files, modelVersion, runMode, memo); onClose(); }
+    try   { await onSubmit(files, modelVersion, memo, observationDatasetId); onClose(); }
     catch (e: unknown) { setError(e instanceof Error ? e.message : '실험 시작에 실패했습니다.'); }
     finally { setSubmitting(false); }
+  };
+
+  const canUploadDataset = datasetName.trim().length > 0 && datasetFiles.length > 0 && !datasetUploading;
+
+  const handleDatasetUpload = async () => {
+    if (!canUploadDataset) return;
+    setDatasetUploading(true);
+    setDatasetUploadError(null);
+    try {
+      const dataset = await createObservationDataset({
+        name: datasetName.trim(),
+        folder_name: datasetFolderName.trim() || null,
+        description: datasetDescription.trim() || null,
+        files: datasetFiles,
+      });
+      onObservationDatasetUploaded(dataset);
+      setObservationDatasetId(dataset.id);
+      setDatasetName('');
+      setDatasetFolderName('');
+      setDatasetDescription('');
+      setDatasetFiles([]);
+      setShowDatasetUpload(false);
+    } catch (e: unknown) {
+      setDatasetUploadError(e instanceof Error ? e.message : '정답 데이터셋 업로드에 실패했습니다.');
+    } finally {
+      setDatasetUploading(false);
+    }
   };
 
   return (
@@ -244,9 +293,6 @@ function NewExperimentModal({
               onChange={e => {
                 const v = e.target.value;
                 setModelVersion(v);
-                const sel = models.find(m => m.version === v);
-                const arch = sel?.metrics?.architecture as string | undefined;
-                if (arch === 'single' || arch === 'multi') setRunMode(arch);
               }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
@@ -281,6 +327,125 @@ function NewExperimentModal({
               ))}
             </div>
             <p className="text-[11px] text-gray-400 mt-2">파일 없이도 실험을 시작할 수 있습니다.</p>
+          </div>
+
+          {/* 성능 지표 정답 데이터셋 */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-600">
+                성능 지표 정답 데이터셋 <span className="text-gray-400 font-normal">(선택)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowDatasetUpload(v => !v)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                데이터셋 업로드
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {observationDatasets.length === 0 ? (
+                <div className="border border-dashed border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
+                  <p className="text-xs text-gray-400">
+                    등록된 정답 데이터셋이 없습니다. 아래 업로드 버튼으로 테스트용 정답 ASC를 등록할 수 있습니다.
+                  </p>
+                </div>
+              ) : (
+                <select
+                  value={observationDatasetId ?? ''}
+                  onChange={e => setObservationDatasetId(e.target.value === '' ? null : Number(e.target.value))}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">선택 안 함</option>
+                  {observationDatasets.map(dataset => (
+                    <option key={dataset.id} value={dataset.id}>
+                      {dataset.name} ({dataset.file_count}개 파일)
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <p className="text-[11px] text-gray-400">
+                run_datetime과 forecast step 기준으로 데이터셋의 QPE_YYYYMMDDHHMM.asc 정답 파일을 매칭합니다.
+              </p>
+
+              {showDatasetUpload && (
+                <div className="border border-gray-200 rounded-xl bg-gray-50 px-4 py-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-medium text-gray-500">데이터셋 이름</label>
+                      <input
+                        value={datasetName}
+                        onChange={e => setDatasetName(e.target.value)}
+                        placeholder="예: 2026_summer_validation"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[11px] font-medium text-gray-500">폴더명 <span className="text-gray-400 font-normal">(선택)</span></label>
+                      <input
+                        value={datasetFolderName}
+                        onChange={e => setDatasetFolderName(e.target.value)}
+                        placeholder="비우면 백엔드 기본값 사용"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-medium text-gray-500">설명 <span className="text-gray-400 font-normal">(선택)</span></label>
+                    <input
+                      value={datasetDescription}
+                      onChange={e => setDatasetDescription(e.target.value)}
+                      placeholder="테스트 조건이나 기준 시각 메모"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-medium text-gray-500">정답 ASC 파일</label>
+                    <input
+                      type="file"
+                      accept=".asc"
+                      multiple
+                      onChange={e => setDatasetFiles(Array.from(e.target.files ?? []))}
+                      className="w-full text-xs text-gray-500 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-white file:text-xs file:font-semibold file:text-gray-600 hover:file:bg-gray-100"
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      파일명은 QPE_YYYYMMDDHHMM.asc 형식이어야 합니다. 예: QPE_202606111210.asc
+                    </p>
+                    {datasetFiles.length > 0 && (
+                      <div className="max-h-20 overflow-y-auto rounded-lg border border-gray-100 bg-white px-3 py-2">
+                        {datasetFiles.map(file => (
+                          <p key={`${file.name}-${file.size}`} className="text-[11px] text-gray-500 truncate">
+                            {file.name}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      {datasetUploadError && <p className="text-xs text-red-500">{datasetUploadError}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDatasetUpload}
+                      disabled={!canUploadDataset}
+                      className="px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    >
+                      {datasetUploading && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                      업로드 후 선택
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 메모 */}
@@ -612,12 +777,15 @@ function ExperimentContent({ jobs, loading }: { jobs: TrainingJob[]; loading: bo
                       </div>
                     )}
                   </div>
-                  {s === 'COMPLETED' && (
+                  {/* 실패·취소 작업도 로그 확인을 위해 상세 페이지 진입 허용 */}
+                  {(s === 'COMPLETED' || s === 'FAILED' || s === 'CANCELED') && (
                     <Link
                       href={`/experiment-results/${job.job_id}`}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+                      className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition shadow-sm ${
+                        s === 'COMPLETED' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'
+                      }`}
                     >
-                      결과 상세 보기
+                      {s === 'COMPLETED' ? '결과 상세 보기' : '로그 확인'}
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                       </svg>
@@ -869,9 +1037,10 @@ function TrainingContent({
 export default function UnifiedPage() {
   const [showModal, setShowModal] = useState(false);
 
-  const [models,     setModels]     = useState<ModelVersion[]>([]);
-  const [expJobs,    setExpJobs]    = useState<TrainingJob[]>([]);
-  const [expLoading, setExpLoading] = useState(false);
+  const [models,              setModels]              = useState<ModelVersion[]>([]);
+  const [observationDatasets, setObservationDatasets] = useState<ObservationDataset[]>([]);
+  const [expJobs,             setExpJobs]             = useState<TrainingJob[]>([]);
+  const [expLoading,          setExpLoading]          = useState(false);
 
   // 학습 기능: 개발 미정 — 아래 코드 주석 처리
   // const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
@@ -898,6 +1067,9 @@ export default function UnifiedPage() {
     getModels()
       .then(data => setModels(data.length ? data : FALLBACK_MODELS))
       .catch(() => setModels(FALLBACK_MODELS));
+    getObservationDatasets()
+      .then(data => setObservationDatasets(data))
+      .catch(() => setObservationDatasets([]));
   }, []);
 
   useEffect(() => { refreshExp(); }, [refreshExp]);
@@ -925,24 +1097,24 @@ export default function UnifiedPage() {
   const handleSubmitExperiment = async (
     files: FormFiles,
     modelVersion: string,
-    runMode: 'single' | 'multi',
     memo: string,
+    observationDatasetId: number | null,
   ) => {
-    const nowDt = getNowDt();
+    const runDt = getCompactDtFromFilename(files.t3.name) ?? getNowDt();
     const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
       fs.file
-        ? { filename: fs.name, timestamp: calculateTimestamp(nowDt, offset), file_data: await fileToBase64(fs.file) }
+        ? { filename: fs.name, timestamp: calculateTimestamp(runDt, offset), file_data: await fileToBase64(fs.file) }
         : { filename: null, timestamp: null, file_data: null };
 
     await createExperimentJob({
-      run_datetime:          nowDt,
-      model_version:         modelVersion,
-      mode:                  runMode,
-      forecast_steps:        ALL_STEPS,
-      include_preview_image: true,
-      experiment_name:       null,
-      experiment_tags:       null,
-      experiment_memo:       memo || null,
+      run_datetime:             toApiRunDatetime(runDt),
+      model_version:            modelVersion,
+      forecast_steps:           ALL_STEPS,
+      include_preview_image:    true,
+      experiment_name:          null,
+      experiment_tags:          null,
+      experiment_memo:          memo || null,
+      observation_dataset_id:   observationDatasetId,
       input_files: {
         file_t0: await makeFile(files.t0, -30),
         file_t1: await makeFile(files.t1, -20),
@@ -953,21 +1125,27 @@ export default function UnifiedPage() {
     refreshExp();
   };
 
+  const handleObservationDatasetUploaded = useCallback((dataset: ObservationDataset) => {
+    setObservationDatasets(prev => [dataset, ...prev.filter(item => item.id !== dataset.id)]);
+  }, []);
+
   // 학습 제출: 개발 미정 — 아래 코드 주석 처리
   // const handleSubmitTraining = async (...) => { ... };
 
   return (
     <Layout>
       {showModal && (
-        <NewExperimentModal onClose={() => setShowModal(false)} onSubmit={handleSubmitExperiment} models={models} />
+        <NewExperimentModal
+          onClose={() => setShowModal(false)}
+          onSubmit={handleSubmitExperiment}
+          models={models}
+          observationDatasets={observationDatasets}
+          onObservationDatasetUploaded={handleObservationDatasetUploaded}
+        />
       )}
 
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">실험 관리</h1>
-          <p className="text-sm text-gray-500 mt-0.5">QPF 모델 추론 실험을 생성하고 결과를 확인합니다.</p>
-        </div>
+      {/* 페이지 타이틀은 공통 헤더가 표시 — 새 실험 버튼만 우측 정렬로 유지 */}
+      <div className="flex items-center justify-end mb-6">
         <button
           onClick={() => setShowModal(true)}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"

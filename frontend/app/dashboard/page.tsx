@@ -27,36 +27,6 @@ export default function Page() {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabKey = 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
-type JobTab = 'experiment' | 'training';
-
-
-// ─── 유틸 ─────────────────────────────────────────────────────────────────────
-
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleString('ko-KR', {
-    month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
-// ─── 공통 UI ─────────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const s = (status ?? '').toUpperCase();
-  const cls =
-    s === 'RUNNING'   ? 'bg-green-100 text-green-800 border-green-200' :
-    s === 'COMPLETED' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-    s === 'FAILED'    ? 'bg-red-100 text-red-800 border-red-200' :
-    s === 'QUEUED'    ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
-    'bg-gray-100 text-gray-600 border-gray-200';
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${cls}`}>
-      {s === 'RUNNING' && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />}
-      {status}
-    </span>
-  );
-}
 
 // ─── 도넛 차트 ────────────────────────────────────────────────────────────────
 
@@ -127,12 +97,12 @@ function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
                 strokeLinecap="butt"
                 onMouseEnter={() => setHoveredKey(a.key)}
                 onMouseLeave={() => setHoveredKey(null)}
-                style={{ opacity: isHovered ? 0.7 : 1, transition: 'opacity 0.15s' }}
+                style={{ opacity: isHovered ? 0.7 : 1, transition: 'opacity 0.15황' }}
               />
             );
           })}
           <text x={CX} y={CY - 10} textAnchor="middle" fontSize="30" fontWeight="800" fill="#111827">{total}</text>
-          <text x={CX} y={CY + 14} textAnchor="middle" fontSize="12" fill="#9ca3af">전체 잡</text>
+          <text x={CX} y={CY + 14} textAnchor="middle" fontSize="12" fill="#9ca3af">전체 현황</text>
         </svg>
 
         <div className="w-full grid grid-cols-2 gap-x-3 gap-y-2">
@@ -163,6 +133,7 @@ function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
 
 interface ChartPoint {
   label: string;
+  name: string;
   sub: string;
   job_id: number;
   mae: number;
@@ -170,48 +141,21 @@ interface ChartPoint {
   csi: number;
 }
 
-function PerfLineChart({ pts, loading }: { pts: ChartPoint[]; loading: boolean }) {
-  const [hov, setHov] = useState<number | null>(null);
-  const W = 480, H = 220;
-  const p = { t: 18, r: 44, b: 40, l: 52 };
-  const pw = W - p.l - p.r;
-  const ph = H - p.t - p.b;
-  const maxY = 6;
+// 실험 TC별 결과 테이블 — 최근 완료 실험 최대 5건 (기존 성능 추이 그래프 대체, 2026-06-12 피드백)
+function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean }) {
+  const rows = [...pts].slice(-5).reverse(); // 최신순 5건
 
-  const header = (
-    <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
-      <div>
-        <h3 className="text-sm font-semibold text-gray-700">성능 추이</h3>
-        <p className="text-xs text-gray-400 mt-0.5">완료된 실험 지표 기준</p>
-      </div>
-      <div className="flex gap-4 text-xs text-gray-500">
-        {[['#3b82f6','MAE'],['#fb923c','RMSE'],['#10b981','CSI_10']].map(([color, label]) => (
-          <span key={label} className="flex items-center gap-1.5">
-            <svg width="16" height="4" className="flex-shrink-0">
-              <line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2.5" />
-            </svg>
-            {label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
-        {header}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">실험 결과</h3>
+          <p className="text-xs text-gray-400 mt-0.5">최근 완료 실험 TC 지표 · 최대 5건</p>
         </div>
+        {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
       </div>
-    );
-  }
 
-  if (pts.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
-        {header}
+      {rows.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-gray-300">
           <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -219,67 +163,39 @@ function PerfLineChart({ pts, loading }: { pts: ChartPoint[]; loading: boolean }
           </svg>
           <p className="text-xs text-gray-400">지표가 있는 완료 실험이 없습니다</p>
         </div>
-      </div>
-    );
-  }
-
-  const n   = pts.length;
-  const xs    = (i: number) => n > 1 ? p.l + (pw / (n - 1)) * i : p.l + pw / 2;
-  const ys    = (v: number) => p.t + ph - (v / maxY) * ph;
-  const ysCSI = (v: number) => p.t + ph - v * ph;
-  const maePts  = pts.map((d, i) => `${xs(i).toFixed(1)},${ys(d.mae).toFixed(1)}`).join(' ');
-  const rmsePts = pts.map((d, i) => `${xs(i).toFixed(1)},${ys(d.rmse).toFixed(1)}`).join(' ');
-  const csiPts  = pts.map((d, i) => `${xs(i).toFixed(1)},${ysCSI(d.csi).toFixed(1)}`).join(' ');
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
-      {header}
-
-      <div className="flex-1 min-h-0 px-3 pb-2">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" preserveAspectRatio="none">
-          {[0, 2, 4, 6].map(v => (
-            <g key={v}>
-              <line x1={p.l} y1={ys(v)} x2={p.l + pw} y2={ys(v)} stroke="#f3f4f6" strokeWidth="1" />
-              <text x={p.l - 8} y={ys(v) + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{v}</text>
-            </g>
-          ))}
-          {([0, 0.5, 1] as number[]).map(v => (
-            <text key={v} x={p.l + pw + 6} y={ysCSI(v) + 4} textAnchor="start" fontSize="11" fill="#10b981">{v}</text>
-          ))}
-          <line x1={p.l} y1={p.t} x2={p.l} y2={p.t + ph} stroke="#e5e7eb" strokeWidth="1" />
-          <line x1={p.l} y1={p.t + ph} x2={p.l + pw} y2={p.t + ph} stroke="#e5e7eb" strokeWidth="1" />
-          {n > 1 && <>
-            <polyline points={rmsePts} stroke="#fb923c" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
-            <polyline points={maePts}  stroke="#3b82f6" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
-            <polyline points={csiPts}  stroke="#10b981" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
-          </>}
-          {pts.map((d, i) => (
-            <g key={d.job_id} style={{ cursor: 'default' }}
-              onMouseEnter={(e) => { e.stopPropagation(); setHov(i); }}
-              onMouseLeave={(e) => { e.stopPropagation(); setHov(null); }}
-            >
-              <rect x={xs(i) - 36} y={p.t} width={72} height={ph} fill="transparent" />
-              <circle cx={xs(i)} cy={ys(d.rmse)}   r={hov === i ? 7 : 5} fill="#fb923c" stroke="white" strokeWidth="2" />
-              <circle cx={xs(i)} cy={ys(d.mae)}    r={hov === i ? 7 : 5} fill="#3b82f6" stroke="white" strokeWidth="2" />
-              <circle cx={xs(i)} cy={ysCSI(d.csi)} r={hov === i ? 7 : 5} fill="#10b981" stroke="white" strokeWidth="2" />
-              <text x={xs(i)} y={H - 22} textAnchor="middle" fontSize="11" fill="#9ca3af">{d.label}</text>
-              <text x={xs(i)} y={H - 8} textAnchor="middle" fontSize="11" fontWeight="600"
-                fill={/v3/i.test(d.sub) ? '#059669' : '#d97706'}>{d.sub}</text>
-            </g>
-          ))}
-        </svg>
-      </div>
-
-      <div className="flex-shrink-0 h-9 px-4 pb-2 flex justify-center items-center">
-        {hov !== null && (
-          <div className="flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-1.5 text-xs">
-            <span className="font-semibold text-gray-600">#{pts[hov].job_id} {pts[hov].label} ({pts[hov].sub})</span>
-            <span className="text-blue-600">MAE <span className="font-mono font-bold">{pts[hov].mae.toFixed(3)}</span></span>
-            <span className="text-orange-500">RMSE <span className="font-mono font-bold">{pts[hov].rmse.toFixed(3)}</span></span>
-            <span className="text-emerald-600">CSI <span className="font-mono font-bold">{pts[hov].csi.toFixed(3)}</span></span>
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                {['TC', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+                  <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.job_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-2.5 max-w-[180px]">
+                    <p className="text-sm font-medium text-gray-800 truncate">{r.name}</p>
+                    <p className="text-[11px] text-gray-400">#{r.job_id} · {r.label}</p>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className={`text-xs font-semibold ${/v3/i.test(r.sub) ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {r.sub}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.mae.toFixed(3)}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.rmse.toFixed(3)}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.csi.toFixed(3)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -291,7 +207,6 @@ function Dashboard() {
   const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
   const [system,       setSystem]       = useState<SystemStatus | null>(null);
   const [loading,      setLoading]      = useState(true);
-  const [jobTab,       setJobTab]       = useState<JobTab>('experiment');
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
   const prevCompletedIdsRef = useRef('');
@@ -342,11 +257,13 @@ function Dashboard() {
           const m = result.metrics as Record<string, number>;
           pts.push({
             label,
+            name:   job.experiment_name,
             sub:    result.params.model_version ?? '-',
             job_id: job.job_id,
-            mae:    m.mae    ?? 0,
-            rmse:   m.rmse   ?? 0,
-            csi:    m.csi_10 ?? 0,
+            mae:    m.mae  ?? 0,
+            rmse:   m.rmse ?? 0,
+            // 전체 단일 CSI(백엔드 변경 예정) 우선, 없으면 기존 csi_10 폴백
+            csi:    m.csi ?? m.csi_10 ?? 0,
           });
         });
         setChartPts(pts);
@@ -366,124 +283,24 @@ function Dashboard() {
   const allJobs = Array.from(
     new Map([...expJobs, ...trainJobs].map(j => [j.job_id, j])).values()
   );
-  const currentJobs = jobTab === 'experiment' ? expJobs : trainJobs;
-  const sorted = [...currentJobs]
-    .sort((a, b) => new Date(b.created_at ?? '').getTime() - new Date(a.created_at ?? '').getTime())
-    .slice(0, 10);
-
-  const JOB_TABS: { key: JobTab; label: string; count: number }[] = [
-    { key: 'experiment', label: '실험', count: expJobs.length },
-    { key: 'training',   label: '학습', count: trainJobs.length },
-  ];
-
   return (
     <Layout>
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">대시보드</h1>
-        <div className="flex items-center gap-2 text-sm">
-          {system?.available ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
-              <span className="text-green-600 font-medium">GPU {system.gpu_count}개 온라인</span>
-            </>
-          ) : system != null && (
-            <>
-              <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
-              <span className="text-red-500 font-medium">GPU 오프라인</span>
-            </>
-          )}
+      {/* 페이지 타이틀은 공통 헤더가 표시 — GPU 온라인 배지만 우측 정렬로 유지 */}
+      {system?.available && (
+        <div className="flex items-center justify-end gap-2 text-sm mb-4">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
+          <span className="text-green-600 font-medium">GPU {system.gpu_count}개 온라인</span>
         </div>
-      </div>
+      )}
 
-      {/* 도넛 차트 + 성능 추이 차트 */}
+      {/* 도넛 차트 + 실험 TC 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
       <div className="flex gap-4 mb-6 items-stretch">
         <div className="w-[40%]">
           <StatusDonutChart jobs={allJobs} />
         </div>
         <div className="w-[60%]">
-          <PerfLineChart pts={chartPts} loading={chartLoading} />
+          <TcResultsTable pts={chartPts} loading={chartLoading} />
         </div>
-      </div>
-
-      {/* 최근 작업 목록 */}
-      <div>
-        {/* 탭 */}
-        <div className="flex items-center mb-3">
-          <div className="flex rounded-lg overflow-hidden border border-gray-200">
-            {JOB_TABS.map((tab, i) => (
-              <button
-                key={tab.key}
-                onClick={() => setJobTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-1.5 text-sm font-medium transition-colors ${
-                  i > 0 ? 'border-l border-gray-200' : ''
-                } ${
-                  jobTab === tab.key
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {tab.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                  jobTab === tab.key ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 테이블 */}
-        {sorted.length === 0 ? (
-          <div className="py-16 text-center text-gray-400 text-sm">등록된 작업이 없습니다.</div>
-        ) : (
-          <div className="rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            {/* 컬럼 헤더 */}
-            <div className="grid grid-cols-[1fr_110px_160px_130px] gap-4 px-5 py-2.5 bg-gray-50 border-b border-gray-100">
-              {['이름', '상태', '모드 / 버전', '생성일자'].map(h => (
-                <span key={h} className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</span>
-              ))}
-            </div>
-
-            {/* 행 */}
-            {sorted.map((job, idx) => {
-              const s       = job.status.toUpperCase();
-              const version = chartPts.find(p => p.job_id === job.job_id)?.sub ?? '-';
-              const isLast  = idx === sorted.length - 1;
-              return (
-                <div
-                  key={job.job_id}
-                  className={`bg-white px-5 py-3.5 grid grid-cols-[1fr_110px_160px_130px] gap-4 items-center ${
-                    !isLast ? 'border-b border-gray-100' : ''
-                  }`}
-                >
-                  {/* 이름 */}
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{job.experiment_name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">#{job.job_id} · {job.user_name}</p>
-                  </div>
-
-                  {/* 상태 */}
-                  <div>
-                    <StatusBadge status={job.status} />
-                    {s === 'RUNNING' && job.progress != null && (
-                      <div className="mt-1.5 h-1 bg-gray-100 rounded-full overflow-hidden w-[90px]">
-                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${job.progress}%` }} />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 모드 / 버전 */}
-                  <span className="text-sm text-gray-600">{job.mode} / {version}</span>
-
-                  {/* 생성일자 */}
-                  <span className="text-sm text-gray-500 whitespace-nowrap">{fmtDateTime(job.created_at)}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </Layout>
   );

@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 해상도 변경·세로로 긴 화면에서 레이아웃이 viewport를 항상 가득 채우도록 보장
+   (푸터 아래 빈 공간 방지) */
+html,
+body {
+  height: 100%;
+}
+
 /* ══════════════════════════════════════════════════════════
    Layout CSS 변수 — Layout.tsx / LayoutTopNav.tsx 전용
    !important 오버라이드 없음. 각 디자인 컴포넌트가 직접 Tailwind 클래스 사용.

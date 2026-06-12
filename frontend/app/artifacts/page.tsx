@@ -5,18 +5,6 @@ import Layout from '@/lib/Layout';
 import { getExperimentJobs, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
 import { MOCK_EXPERIMENT_JOBS, MOCK_ARTIFACTS } from '@/lib/mockData';
 
-const ARTIFACT_TYPE_STYLE: Record<string, string> = {
-  model:   'bg-violet-100 text-violet-700',
-  metrics: 'bg-blue-100   text-blue-700',
-  plot:    'bg-emerald-100 text-emerald-700',
-};
-
-const ARTIFACT_TYPE_LABEL: Record<string, string> = {
-  model:   '모델',
-  metrics: '지표',
-  plot:    'ASC',
-};
-
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
@@ -90,11 +78,7 @@ export default function Artifacts() {
 
   return (
     <Layout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">아티팩트</h1>
-        <p className="text-sm text-gray-500 mt-0.5">완료된 실험의 모델·지표·강우장 ASC 산출물을 확인하고 다운로드합니다.</p>
-      </div>
-
+      {/* 페이지 타이틀은 공통 헤더가 표시 */}
       <div className="grid grid-cols-2 gap-5">
         {/* 완료된 실험 목록 */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -141,9 +125,21 @@ export default function Artifacts() {
               </span>
             )}
             {selectedRunId && artifacts.length > 0 && (
-              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-auto">
-                {artifacts.length}개
-              </span>
+              <>
+                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-auto">
+                  {artifacts.length}개
+                </span>
+                <button
+                  onClick={() => artifacts.forEach((a, i) => setTimeout(() => handleDownload(a, selectedJobId), i * 300))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  title="목록의 모든 파일 다운로드"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  일괄 다운로드
+                </button>
+              </>
             )}
           </div>
           <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
@@ -171,9 +167,6 @@ export default function Artifacts() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-sm font-medium text-gray-800 truncate">{a.file_name}</span>
-                        <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${ARTIFACT_TYPE_STYLE[a.artifact_type] ?? 'bg-gray-100 text-gray-600'}`}>
-                          {ARTIFACT_TYPE_LABEL[a.artifact_type] ?? a.artifact_type}
-                        </span>
                         {isMock && (
                           <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">
                             mock

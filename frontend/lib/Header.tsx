@@ -1,0 +1,50 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
+import UserPopup from './UserPopup';
+
+// 라우트별 헤더 타이틀 — 사이드바 항목 + 사이드바 미노출 상세 라우트
+// 정확히 일치 또는 하위 경로(`/경로/...`)면 매칭
+const ROUTE_TITLES: [string, string][] = [
+  ['/dashboard',          '대시보드'],
+  ['/experiments',        '실험'],
+  ['/experiment-results', '실험 결과'],
+  ['/training-results',   '학습 결과'],
+  ['/trainings',          '학습'],
+  ['/artifacts',          '아티팩트'],
+  ['/models',             '모델 레지스트리'],
+  ['/system',             '시스템'],
+  ['/runs',               'Runs'],
+];
+
+export function resolveTitle(pathname: string | null): string {
+  if (!pathname) return 'DataOps Platform';
+  const match = ROUTE_TITLES.find(
+    ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+  return match ? match[1] : 'DataOps Platform';
+}
+
+/** 전역 헤더 — viewport 최상단 고정 (사이드바 로고 영역과 동일 높이 h-16) */
+export default function Header() {
+  const pathname = usePathname();
+  const title = resolveTitle(pathname);
+
+  return (
+    <header
+      className="h-16 flex-shrink-0 border-b px-6 flex items-center"
+      style={{
+        background:  'var(--header-bg)',
+        borderColor: 'var(--header-border)',
+        boxShadow:   '0 1px 3px rgba(0,0,0,0.06)',
+      }}
+    >
+      <div className="flex-1 flex items-center justify-between">
+        <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
+          {title}
+        </h1>
+        <UserPopup />
+      </div>
+    </header>
+  );
+}

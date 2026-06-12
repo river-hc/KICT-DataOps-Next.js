@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Layout from '@/lib/Layout';
-import { getModels, type ModelVersion } from '@/lib/api';
+import { getModels, registerModel, type ModelVersion } from '@/lib/api';
 
 // ─── Mock ─────────────────────────────────────────────────────────────────────
 
@@ -47,16 +47,89 @@ const MOCK_MODELS: ModelVersion[] = [
 
 // ─── Register modal ───────────────────────────────────────────────────────────
 
-function RegisterModal({ onClose }: { onClose: () => void }) {
-  const [versionLabel, setVersionLabel] = useState('');
+// 아키텍처별 허용 확장자 — Single: 단일 모델 파일 / Multi: tflite 18개 또는 ZIP
+const ACCEPT_BY_ARCH = {
+  single: '.h5,.pt',
+  multi:  '.tflite,.zip',
+} as const;
+
+function matchesArch(fileName: string, arch: 'single' | 'multi'): boolean {
+  const lower = fileName.toLowerCase();
+  return ACCEPT_BY_ARCH[arch].split(',').some(ext => lower.endsWith(ext));
+}
+
+// 기존 목록의 Ver.N 최대값 +1을 기본 버전 레이블로 제안 (패턴 불일치 시 빈 값)
+function suggestNextVersion(models: ModelVersion[]): string {
+  const nums = models
+    .map(m => /^Ver\.(\d+)$/.exec(m.version ?? ''))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map(m => Number(m[1]));
+  return nums.length ? `Ver.${Math.max(...nums) + 1}` : '';
+}
+
+function RegisterModal({
+  onClose, onRegistered, models,
+}: {
+  onClose: () => void;
+  onRegistered: () => void;
+  models: ModelVersion[];
+}) {
+  const [versionLabel, setVersionLabel] = useState(() => suggestNextVersion(models));
   const [architecture, setArchitecture] = useState<'multi' | 'single'>('multi');
   const [file, setFile] = useState<File | null>(null);
   const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleArchChange = (arch: 'multi' | 'single') => {
+    setArchitecture(arch);
+    if (file && !matchesArch(file.name, arch)) {
+      setFile(null);
+      setFileNotice('아키텍처에 맞지 않는 파일이라 선택이 해제되었습니다.');
+    }
+  };
+
+  const handleFileChange = (f: File | null) => {
+    if (f && !matchesArch(f.name, architecture)) {
+      setFile(null);
+      setFileNotice(
+        architecture === 'single'
+          ? 'Single 아키텍처는 .h5 / .pt 파일만 등록할 수 있습니다.'
+          : 'Multi 아키텍처는 .tflite / .zip 파일만 등록할 수 있습니다.'
+      );
+      return;
+    }
+    setFile(f);
+    setFileNotice(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: POST /api/v1/models (multipart/form-data)
-    onClose();
+    if (!file) return;
+
+    const label = versionLabel.trim();
+    if (models.some(m => m.version === label)) {
+      setError(`이미 존재하는 버전입니다: ${label}`);
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await registerModel({
+        versionLabel: label,
+        architecture,
+        modelFile: file,
+        memo: note.trim() || undefined,
+      });
+      onRegistered();
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '모델 등록에 실패했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -110,7 +183,7 @@ function RegisterModal({ onClose }: { onClose: () => void }) {
                     name="architecture"
                     value={opt.value}
                     checked={architecture === opt.value}
-                    onChange={() => setArchitecture(opt.value)}
+                    onChange={() => handleArchChange(opt.value)}
                     className="mt-0.5 accent-blue-600"
                   />
                   <div>
@@ -131,9 +204,9 @@ function RegisterModal({ onClose }: { onClose: () => void }) {
             }`}>
               <input
                 type="file"
-                accept=".h5,.tflite,.pt,.zip"
+                accept={ACCEPT_BY_ARCH[architecture]}
                 className="hidden"
-                onChange={e => setFile(e.target.files?.[0] ?? null)}
+                onChange={e => handleFileChange(e.target.files?.[0] ?? null)}
               />
               {file ? (
                 <div className="text-center px-4">
@@ -145,10 +218,15 @@ function RegisterModal({ onClose }: { onClose: () => void }) {
                   <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                   </svg>
-                  <p className="text-xs text-gray-400">.h5 · .tflite · .pt · .zip</p>
+                  <p className="text-xs text-gray-400">
+                    {architecture === 'single' ? '.h5 · .pt' : '.tflite · .zip (18개 모델 묶음)'}
+                  </p>
                 </div>
               )}
             </label>
+            {fileNotice && (
+              <p className="text-xs text-amber-600 mt-1.5">{fileNotice}</p>
+            )}
           </div>
 
           <div>
@@ -159,24 +237,28 @@ function RegisterModal({ onClose }: { onClose: () => void }) {
               value={note}
               onChange={e => setNote(e.target.value)}
               rows={3}
-              placeholder="학습 데이터 출처, 특이사항 등"
+              placeholder="학습 데이터 출처, 전이학습 기반 버전 등"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex items-center gap-2 pt-1">
+            <div className="flex-1 min-w-0">
+              {error && <p className="text-xs text-red-500">{error}</p>}
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition flex-shrink-0"
             >
               취소
             </button>
             <button
               type="submit"
-              disabled={!versionLabel || !file}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!versionLabel.trim() || !file || submitting}
+              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
             >
+              {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
               등록
             </button>
           </div>
@@ -194,12 +276,14 @@ export default function Models() {
   const [showModal, setShowModal] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     getModels()
       .then(data => setModels(data.length ? data : MOCK_MODELS))
       .catch(() => setModels(MOCK_MODELS))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   if (loading) {
     return (
@@ -214,13 +298,16 @@ export default function Models() {
 
   return (
     <Layout>
-      {showModal && <RegisterModal onClose={() => setShowModal(false)} />}
+      {showModal && (
+        <RegisterModal
+          models={models}
+          onClose={() => setShowModal(false)}
+          onRegistered={refresh}
+        />
+      )}
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">모델 레지스트리</h1>
-          <p className="text-sm text-gray-500 mt-0.5">등록된 모델 버전을 관리합니다.</p>
-        </div>
+      {/* 페이지 타이틀은 공통 헤더가 표시 — 등록 버튼만 우측 정렬로 유지 */}
+      <div className="flex items-center justify-end mb-6">
         <button
           onClick={() => setShowModal(true)}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
