@@ -4,17 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import { getModels, type ModelVersion } from '@/lib/api';
-import { getStage, loadHidden, type ModelStage } from '@/lib/modelStore';
+import { getModelAliases, loadHidden } from '@/lib/modelStore';
 import { MOCK_MODELS } from '@/lib/modelMock';
-
-// ─── Stage 배지 (목록 요약용) ────────────────────────────────────────────────
-
-const STAGE_BADGE: Record<ModelStage, string> = {
-  None:       'bg-gray-100  text-gray-500  border-gray-200',
-  Staging:    'bg-amber-50  text-amber-700 border-amber-200',
-  Production: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Archived:   'bg-gray-100  text-gray-400  border-gray-200',
-};
 
 // ─── 모델 그룹 요약 ──────────────────────────────────────────────────────────
 
@@ -22,7 +13,7 @@ interface ModelGroup {
   name: string;
   versionCount: number;
   latest: ModelVersion;
-  productionVersion: string | null;
+  aliases: { alias: string; version: string }[];
   latestRegistered: string | null;
 }
 
@@ -35,12 +26,17 @@ function buildGroups(models: ModelVersion[]): ModelGroup[] {
   }
   return Array.from(map.entries()).map(([name, arr]) => {
     const sorted = [...arr].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
-    const prod = sorted.find(m => getStage(m) === 'Production');
+    const byId = new Map(sorted.map(m => [m.id, m.version]));
+    const aliasMap = getModelAliases(name); // { alias: versionId }
+    const aliases = Object.entries(aliasMap)
+      .filter(([, vid]) => byId.has(vid))
+      .map(([alias, vid]) => ({ alias, version: byId.get(vid)! }))
+      .sort((a, b) => a.alias.localeCompare(b.alias));
     return {
       name,
       versionCount: sorted.length,
       latest: sorted[0],
-      productionVersion: prod?.version ?? null,
+      aliases,
       latestRegistered: sorted[0]?.created_at ?? null,
     };
   });
@@ -87,7 +83,7 @@ export default function Models() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['모델명', '버전 수', '최신 버전', '운영(Production)', '최근 등록일'].map(h => (
+              {['모델명', '버전 수', '최신 버전', '별칭(Aliases)', '최근 등록일'].map(h => (
                 <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -115,15 +111,17 @@ export default function Models() {
                   <span className="font-mono text-xs font-semibold text-gray-700">{g.latest?.version ?? '-'}</span>
                 </td>
                 <td className="px-5 py-3">
-                  {g.productionVersion ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${STAGE_BADGE.Production}`}>
-                        Production
-                      </span>
-                      <span className="font-mono text-xs text-gray-500">{g.productionVersion}</span>
-                    </span>
+                  {g.aliases.length > 0 ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {g.aliases.map(({ alias, version }) => (
+                        <span key={alias} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+                          @{alias}
+                          <span className="font-mono text-blue-400">{version}</span>
+                        </span>
+                      ))}
+                    </div>
                   ) : (
-                    <span className="text-xs text-gray-300">지정 없음</span>
+                    <span className="text-xs text-gray-300">없음</span>
                   )}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">

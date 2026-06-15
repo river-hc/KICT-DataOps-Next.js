@@ -5,8 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import { getModels, registerModel, type ModelVersion } from '@/lib/api';
 import {
-  getStage, setStage, loadHidden, hideModel, getModelDesc, setModelDesc,
-  type ModelStage,
+  getVersionAliases, getAliasTarget, setAlias, removeAlias,
+  loadHidden, hideModel, getModelDesc, setModelDesc,
+  ALIAS_SUGGESTIONS,
 } from '@/lib/modelStore';
 import { MOCK_MODELS } from '@/lib/modelMock';
 
@@ -233,57 +234,90 @@ function RegisterModal({
   );
 }
 
-// ─── Stage 배지 / 전환 액션 ─────────────────────────────────────────────────
+// ─── 별칭(Alias) 셀 ─────────────────────────────────────────────────────────
 
-const STAGE_BADGE: Record<ModelStage, string> = {
-  None:       'bg-gray-100  text-gray-500  border-gray-200',
-  Staging:    'bg-amber-50  text-amber-700 border-amber-200',
-  Production: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  Archived:   'bg-gray-100  text-gray-400  border-gray-200',
-};
+function AliasCell({
+  aliases, onAdd, onRemove,
+}: {
+  aliases: string[]; onAdd: (alias: string) => void; onRemove: (alias: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [val, setVal]       = useState('');
 
-function StageBadge({ stage }: { stage: ModelStage }) {
+  const submit = (raw?: string) => {
+    const a = (raw ?? val).trim();
+    if (!a) return;
+    onAdd(a);
+    setVal('');
+    setAdding(false);
+  };
+
+  const remaining = ALIAS_SUGGESTIONS.filter(s => !aliases.includes(s));
+
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${STAGE_BADGE[stage]}`}>
-      {stage}
-    </span>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {aliases.map(a => (
+        <span key={a} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+          @{a}
+          <button
+            onClick={e => { e.stopPropagation(); onRemove(a); }}
+            className="text-blue-300 hover:text-blue-600 transition"
+            title="별칭 제거"
+          >
+            <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+              <path d="M3 3l10 10M13 3L3 13" />
+            </svg>
+          </button>
+        </span>
+      ))}
+
+      {adding ? (
+        <span className="inline-flex items-center gap-1">
+          <input
+            value={val}
+            autoFocus
+            onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setAdding(false); }}
+            placeholder="별칭"
+            className="w-24 px-2 py-0.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {remaining.slice(0, 2).map(s => (
+            <button
+              key={s}
+              onClick={() => submit(s)}
+              className="px-1.5 py-0.5 text-[11px] text-gray-500 border border-gray-200 rounded hover:bg-gray-50 whitespace-nowrap"
+            >
+              {s}
+            </button>
+          ))}
+          <button onClick={() => submit()} className="px-1.5 py-0.5 text-[11px] font-semibold text-white bg-blue-600 rounded hover:bg-blue-700">추가</button>
+        </span>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-gray-400 border border-dashed border-gray-300 rounded-full hover:text-gray-600 hover:border-gray-400 transition"
+          title="별칭 추가"
+        >
+          <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 
-const STAGE_BTN: Record<ModelStage, { label: string; cls: string }> = {
-  Production: { label: '→ Production', cls: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' },
-  Staging:    { label: '→ Staging',    cls: 'text-amber-600  border-amber-200  hover:bg-amber-50'  },
-  Archived:   { label: 'Archive',      cls: 'text-gray-600   border-gray-200   hover:bg-gray-50'   },
-  None:       { label: '→ None',       cls: 'text-gray-500   border-gray-200   hover:bg-gray-50'   },
-};
-const ACTION_ORDER: ModelStage[] = ['Production', 'Staging', 'Archived', 'None'];
-
-function StageActions({
-  stage, onChange, onDelete,
-}: {
-  stage: ModelStage; onChange: (s: ModelStage) => void; onDelete: () => void;
-}) {
+function DeleteButton({ onDelete }: { onDelete: () => void }) {
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {ACTION_ORDER.filter(s => s !== stage).map(s => (
-        <button
-          key={s}
-          onClick={e => { e.stopPropagation(); onChange(s); }}
-          className={`px-2 py-1 text-xs font-semibold border rounded-md transition whitespace-nowrap bg-white ${STAGE_BTN[s].cls}`}
-        >
-          {STAGE_BTN[s].label}
-        </button>
-      ))}
-      <button
-        onClick={e => { e.stopPropagation(); onDelete(); }}
-        className="p-1 text-red-400 border border-red-100 rounded-md hover:bg-red-50 transition"
-        title="삭제"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-        </svg>
-      </button>
-    </div>
+    <button
+      onClick={e => { e.stopPropagation(); onDelete(); }}
+      className="p-1 text-red-400 border border-red-100 rounded-md hover:bg-red-50 transition"
+      title="삭제"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    </button>
   );
 }
 
@@ -331,10 +365,12 @@ function ModelDescription({ modelName }: { modelName: string }) {
 // ─── 버전 목록 테이블 ─────────────────────────────────────────────────────────
 
 function VersionTable({
-  versions, onStageChange, onDelete,
+  modelName, versions, onAddAlias, onRemoveAlias, onDelete,
 }: {
+  modelName: string;
   versions: ModelVersion[];
-  onStageChange: (id: number, stage: ModelStage) => void;
+  onAddAlias: (id: number, alias: string) => void;
+  onRemoveAlias: (alias: string) => void;
   onDelete: (id: number) => void;
 }) {
   return (
@@ -342,7 +378,7 @@ function VersionTable({
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100">
-            {['Version', 'Stage', '아키텍처', '파일 형식', '등록일', '메모', 'Actions'].map(h => (
+            {['Version', 'Aliases', '아키텍처', '파일 형식', '등록일', '메모', 'Actions'].map(h => (
               <th key={h} className="text-left px-5 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                 {h}
               </th>
@@ -351,18 +387,24 @@ function VersionTable({
         </thead>
         <tbody>
           {versions.map(m => {
-            const arch  = m.metrics?.architecture as string | undefined;
-            const fmt   = m.metrics?.file_format  as string | undefined;
-            const cnt   = m.metrics?.file_count   as number | undefined;
-            const note  = m.metrics?.note         as string | undefined;
-            const stage = getStage(m);
+            const arch    = m.metrics?.architecture as string | undefined;
+            const fmt     = m.metrics?.file_format  as string | undefined;
+            const cnt     = m.metrics?.file_count   as number | undefined;
+            const note    = m.metrics?.note         as string | undefined;
+            const aliases = getVersionAliases(modelName, m.id);
 
             return (
               <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
                 <td className="px-5 py-3">
                   <span className="font-mono text-sm font-semibold text-blue-600">{m.version}</span>
                 </td>
-                <td className="px-5 py-3"><StageBadge stage={stage} /></td>
+                <td className="px-5 py-3">
+                  <AliasCell
+                    aliases={aliases}
+                    onAdd={a => onAddAlias(m.id, a)}
+                    onRemove={onRemoveAlias}
+                  />
+                </td>
                 <td className="px-5 py-3 text-xs text-gray-600 whitespace-nowrap">
                   {arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '-'}
                 </td>
@@ -378,11 +420,7 @@ function VersionTable({
                   <span className="line-clamp-1">{note || '-'}</span>
                 </td>
                 <td className="px-5 py-3">
-                  <StageActions
-                    stage={stage}
-                    onChange={s => onStageChange(m.id, s)}
-                    onDelete={() => onDelete(m.id)}
-                  />
+                  <DeleteButton onDelete={() => onDelete(m.id)} />
                 </td>
               </tr>
             );
@@ -416,23 +454,23 @@ export default function ModelDetail() {
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { setHidden(loadHidden()); }, []);
 
-  // Production·Staging은 모델당 1개만 허용 (배타적)
-  const handleStageChange = (id: number, stage: ModelStage) => {
-    if (stage === 'Production' || stage === 'Staging') {
-      const holders = models.filter(m =>
-        m.model_name === modelName && !hidden.includes(m.id) && m.id !== id && getStage(m) === stage
+  // 별칭 부여 — 별칭은 모델당 유일. 이미 다른 버전에 있으면 이동 확인
+  const handleAddAlias = (id: number, alias: string) => {
+    const target = getAliasTarget(modelName, alias);
+    if (target != null && target !== id) {
+      const from = models.find(m => m.id === target);
+      const ok = window.confirm(
+        `별칭 @${alias}이(가) 이미 ${from?.version ?? `#${target}`} 버전에 지정되어 있습니다.\n` +
+        `이 버전으로 옮길까요? (기존 버전에서는 제거됩니다)`
       );
-      if (holders.length > 0) {
-        const names = holders.map(h => h.version).join(', ');
-        const ok = window.confirm(
-          `${names} 버전이 이미 ${stage} 상태입니다.\n` +
-          `${names}을(를) None으로 변경하고 이 버전을 ${stage}로 설정할까요?`
-        );
-        if (!ok) return;
-        holders.forEach(h => setStage(h.id, 'None'));
-      }
+      if (!ok) return;
     }
-    setStage(id, stage);
+    setAlias(modelName, alias, id);
+    setTick(t => t + 1);
+  };
+
+  const handleRemoveAlias = (alias: string) => {
+    removeAlias(modelName, alias);
     setTick(t => t + 1);
   };
 
@@ -517,7 +555,13 @@ export default function ModelDetail() {
         {versions.length === 0 ? (
           <div className="py-16 text-center text-gray-400 text-sm">등록된 버전이 없습니다.</div>
         ) : (
-          <VersionTable versions={versions} onStageChange={handleStageChange} onDelete={handleDelete} />
+          <VersionTable
+            modelName={modelName}
+            versions={versions}
+            onAddAlias={handleAddAlias}
+            onRemoveAlias={handleRemoveAlias}
+            onDelete={handleDelete}
+          />
         )}
       </div>
     </Layout>

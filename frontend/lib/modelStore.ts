@@ -1,41 +1,63 @@
-import type { ModelVersion } from './api';
+// MLflow alias(별칭) 기법. Stage(None/Staging/Production)를 대체.
+// 별칭은 모델당 이름이 유일(한 별칭 = 한 버전을 가리킴), 한 버전은 여러 별칭 보유 가능.
+// 백엔드 별칭 API가 없어 클라이언트 localStorage로 오버레이 관리. 추후 실 API로 교체.
 
-// MLflow식 운영 단계. 백엔드 Stage 모델이 불완전하여 클라이언트 localStorage로 오버레이 관리.
-// 백엔드 select/archive 연동 시 이 파일만 실 API로 교체.
-export type ModelStage = 'None' | 'Staging' | 'Production' | 'Archived';
+const ALIAS_KEY  = 'kict_model_aliases';  // { [modelName]: { [alias]: versionId } }
+const HIDDEN_KEY = 'kict_model_hidden';   // number[] — 삭제(숨김) 처리된 버전 id
+const DESC_KEY   = 'kict_model_desc';     // { [modelName]: string } — 모델 설명 편집값
 
-export const MODEL_STAGES: ModelStage[] = ['None', 'Staging', 'Production', 'Archived'];
+// 자주 쓰는 별칭 제안 (UI 빠른 추가용)
+export const ALIAS_SUGGESTIONS = ['champion', 'challenger', 'production', 'staging'];
 
-const STAGE_KEY  = 'kict_model_stage';   // { [versionId]: ModelStage }
-const HIDDEN_KEY = 'kict_model_hidden';  // number[] — 삭제(숨김) 처리된 버전 id
-const DESC_KEY   = 'kict_model_desc';    // { [modelName]: string } — 모델 설명 편집값
+type AliasMap = Record<string, Record<string, number>>;
 
-// ─── Stage ───────────────────────────────────────────────────────────────────
+// ─── 별칭 ────────────────────────────────────────────────────────────────────
 
-function loadStageMap(): Record<number, ModelStage> {
+function loadAliasMap(): AliasMap {
   if (typeof window === 'undefined') return {};
-  try { return JSON.parse(localStorage.getItem(STAGE_KEY) ?? '{}'); }
+  try { return JSON.parse(localStorage.getItem(ALIAS_KEY) ?? '{}'); }
   catch { return {}; }
 }
 
-/** 백엔드 status → 기본 Stage 매핑 (localStorage 오버라이드가 없을 때) */
-function stageFromStatus(status: string): ModelStage {
-  const s = status.toUpperCase();
-  if (s === 'SELECTED' || s === 'PRODUCTION') return 'Production';
-  if (s === 'ARCHIVED') return 'Archived';
-  if (s === 'STAGING') return 'Staging';
-  return 'None';
+function saveAliasMap(map: AliasMap): void {
+  localStorage.setItem(ALIAS_KEY, JSON.stringify(map));
 }
 
-export function getStage(model: ModelVersion): ModelStage {
-  return loadStageMap()[model.id] ?? stageFromStatus(model.status);
+/** 모델의 별칭 → 버전 id 매핑 전체 */
+export function getModelAliases(modelName: string): Record<string, number> {
+  return loadAliasMap()[modelName] ?? {};
 }
 
-export function setStage(id: number, stage: ModelStage): void {
+/** 특정 버전을 가리키는 별칭 이름 목록 */
+export function getVersionAliases(modelName: string, versionId: number): string[] {
+  const m = getModelAliases(modelName);
+  return Object.keys(m).filter(alias => m[alias] === versionId).sort();
+}
+
+/** 별칭이 현재 가리키는 버전 id (없으면 null) */
+export function getAliasTarget(modelName: string, alias: string): number | null {
+  return getModelAliases(modelName)[alias] ?? null;
+}
+
+/** 별칭을 버전에 부여 (이미 다른 버전에 있으면 이동) */
+export function setAlias(modelName: string, alias: string, versionId: number): void {
   if (typeof window === 'undefined') return;
-  const map = loadStageMap();
-  map[id] = stage;
-  localStorage.setItem(STAGE_KEY, JSON.stringify(map));
+  const map = loadAliasMap();
+  const model = { ...(map[modelName] ?? {}) };
+  model[alias] = versionId;
+  map[modelName] = model;
+  saveAliasMap(map);
+}
+
+/** 별칭 제거 */
+export function removeAlias(modelName: string, alias: string): void {
+  if (typeof window === 'undefined') return;
+  const map = loadAliasMap();
+  if (!map[modelName]) return;
+  const model = { ...map[modelName] };
+  delete model[alias];
+  map[modelName] = model;
+  saveAliasMap(map);
 }
 
 // ─── 삭제(숨김) ─────────────────────────────────────────────────────────────
