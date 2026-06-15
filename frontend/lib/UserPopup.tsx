@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { getDisplayUsername } from './account';
 
 export default function UserPopup() {
   const [username, setUsername] = useState('');
   const router = useRouter();
 
   useEffect(() => {
-    setUsername(localStorage.getItem('username') ?? 'Admin');
+    setUsername(getDisplayUsername());
   }, []);
 
   const initial = username.charAt(0).toUpperCase();
@@ -60,6 +61,18 @@ export default function UserPopup() {
         <hr />
 
         <ul>
+          <li>
+            <button
+              onClick={() => router.push('/profile')}
+              className="user-window-btn w-full text-left"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              프로필 설정
+            </button>
+          </li>
           <li>
             <button onClick={handleLogout} className="user-window-btn logout-btn w-full text-left">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">

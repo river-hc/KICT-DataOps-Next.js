@@ -3,6 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { hasOverride, verifyCredentials, persistSession } from '@/lib/account';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -17,6 +18,18 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
+      // 프로필에서 계정을 변경한 경우 클라이언트에서 override 검증 (백엔드 계정 API 부재)
+      if (hasOverride()) {
+        if (verifyCredentials(username, password)) {
+          const token = btoa(`${username}:${Date.now()}`);
+          persistSession(token, username);
+          router.push('/dashboard');
+        } else {
+          setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+        }
+        return;
+      }
+
       const res = await fetch('/api/auth/login', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -24,8 +37,7 @@ export default function LoginPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('token',    data.access_token);
-        localStorage.setItem('username', data.username ?? username);
+        persistSession(data.access_token, data.username ?? username);
         router.push('/dashboard');
       } else {
         const err = await res.json().catch(() => ({ detail: '로그인에 실패했습니다.' }));

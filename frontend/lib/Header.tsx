@@ -15,6 +15,7 @@ const ROUTE_TITLES: [string, string][] = [
   ['/models',             '모델 레지스트리'],
   ['/system',             '시스템'],
   ['/runs',               'Runs'],
+  ['/profile',            '프로필 설정'],
 ];
 
 export function resolveTitle(pathname: string | null): string {
