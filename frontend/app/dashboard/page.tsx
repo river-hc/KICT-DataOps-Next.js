@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import DashboardExplorer from '@/lib/DashboardExplorer';
 import DashboardKanban   from '@/lib/DashboardKanban';
@@ -143,6 +144,7 @@ interface ChartPoint {
 
 // 실험 TC별 결과 테이블 — 최근 완료 실험 최대 5건 (기존 성능 추이 그래프 대체, 2026-06-12 피드백)
 function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean }) {
+  const router = useRouter();
   const rows = [...pts].slice(-5).reverse(); // 최신순 5건
 
   return (
@@ -177,7 +179,8 @@ function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean 
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={r.job_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                <tr key={r.job_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                  onClick={() => router.push(`/experiment-results/${r.job_id}`)}>
                   <td className="px-4 py-2.5 max-w-[180px]">
                     <p className="text-sm font-medium text-gray-800 truncate">{r.name}</p>
                     <p className="text-[11px] text-gray-400">#{r.job_id} · {r.label}</p>
