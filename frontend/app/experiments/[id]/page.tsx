@@ -15,6 +15,7 @@ import {
   loadClientExperiments, addTcToExpMap, getUserTcJobIds, saveTcMemo,
   type ClientExperiment,
 } from '@/lib/experimentStore';
+import { getVersionAliases } from '@/lib/modelStore';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -242,6 +243,36 @@ function AddTcModal({
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1.5">모델 버전</label>
+
+            {/* 별칭 빠른 선택 — @champion 등 별칭으로 현재 가리키는 버전을 선택 */}
+            {(() => {
+              const aliasEntries = models.flatMap(m =>
+                getVersionAliases(m.model_name, m.id).map(alias => ({ alias, version: m.version }))
+              ).sort((a, b) => a.alias.localeCompare(b.alias));
+              if (aliasEntries.length === 0) return null;
+              return (
+                <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                  <span className="text-[11px] text-gray-400">별칭으로 선택:</span>
+                  {aliasEntries.map(({ alias, version }) => (
+                    <button
+                      key={alias}
+                      type="button"
+                      onClick={() => setModelVersion(version)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition ${
+                        modelVersion === version
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
+                      }`}
+                      title={`${alias} → ${version}`}
+                    >
+                      @{alias}
+                      <span className={`font-mono ${modelVersion === version ? 'text-blue-100' : 'text-blue-400'}`}>{version}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
             <select
               value={modelVersion}
               onChange={e => setModelVersion(e.target.value)}
@@ -250,9 +281,11 @@ function AddTcModal({
               {models.map(m => {
                 const arch = m.metrics?.architecture as string | undefined;
                 const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
+                const aliases = getVersionAliases(m.model_name, m.id);
+                const aliasLabel = aliases.length ? ` · ${aliases.map(a => `@${a}`).join(' ')}` : '';
                 return (
                   <option key={m.id} value={m.version}>
-                    {m.version}{archLabel ? ` (${archLabel})` : ''}
+                    {m.version}{archLabel ? ` (${archLabel})` : ''}{aliasLabel}
                   </option>
                 );
               })}
