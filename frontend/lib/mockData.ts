@@ -2,14 +2,6 @@ import type { TrainingJob, Artifact } from './api';
 
 // ─── 타입 ─────────────────────────────────────────────────────────────────────
 
-export interface MockExperiment {
-  id: number;
-  name: string;
-  description: string;
-  created_at: string;
-  tc_job_ids: number[];
-}
-
 export interface MockDetail {
   params: {
     model_version: string;
@@ -102,33 +94,8 @@ export const MOCK_TRAINING_JOBS: TrainingJob[] = [
   },
 ];
 
-// 대시보드·아티팩트 등 기존 페이지 호환용
+// 대시보드(3001/3002 테마)·runs 등 별도 데모 페이지 호환용
 export const MOCK_TRAININGS: TrainingJob[] = MOCK_EXPERIMENT_JOBS;
-
-// 실험 환경 목록 (MLflow Experiment 컨셉)
-export const MOCK_EXPERIMENTS: MockExperiment[] = [
-  {
-    id: 1,
-    name: '2026년 6월 QPF 종합 검증',
-    description: 'v2/v3 모델을 동일 입력 조건으로 비교하는 종합 검증 실험',
-    created_at: '2026-06-03T17:00:00',
-    tc_job_ids: [4, 5, 6],
-  },
-  {
-    id: 2,
-    name: '야간 강수 예보 검증',
-    description: '야간 레이더 데이터 기반 강수 예보 정확도 검증',
-    created_at: '2026-06-05T09:30:00',
-    tc_job_ids: [1, 3],
-  },
-  {
-    id: 3,
-    name: '모델 버전 비교 실험',
-    description: '구형 v2와 신형 v3 모델의 성능 차이 분석',
-    created_at: '2026-06-02T09:00:00',
-    tc_job_ids: [2, 7, 8],
-  },
-];
 
 export const MOCK_DETAILS: Record<number, MockDetail> = {
   1: {
@@ -150,7 +117,7 @@ export const MOCK_DETAILS: Record<number, MockDetail> = {
       include_preview_image: true,
       run_datetime: '202507160020',
     },
-    metrics: { mae: 2.34, rmse: 4.12, csi_10: 0.78, csi_20: 0.65, csi_30: 0.52, pod: 0.82, far: 0.18, bias: 1.05 },
+    metrics: { mae: 2.34, rmse: 4.12, csi: 0.65, csi_10: 0.78, csi_20: 0.65, csi_30: 0.52, pod: 0.82, far: 0.18, bias: 1.05 },
     ascUrls: Object.fromEntries(
       [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180]
         .map(s => [s, `/asc_data/QPF_202507160020-${s}.asc`])
@@ -158,11 +125,11 @@ export const MOCK_DETAILS: Record<number, MockDetail> = {
   },
   5: {
     params: { model_version: 'v2', forecast_steps: [10,20,30,60,90,120,180], include_preview_image: true, run_datetime: '202606040900' },
-    metrics: { mae: 3.01, rmse: 5.44, csi_10: 0.71, csi_20: 0.58, csi_30: 0.44, pod: 0.76, far: 0.24, bias: 0.98 },
+    metrics: { mae: 3.01, rmse: 5.44, csi: 0.58, csi_10: 0.71, csi_20: 0.58, csi_30: 0.44, pod: 0.76, far: 0.24, bias: 0.98 },
   },
   6: {
     params: { model_version: 'v3', forecast_steps: [10,20,30,60,90,120,180], include_preview_image: true, run_datetime: '202606031800' },
-    metrics: { mae: 2.18, rmse: 3.87, csi_10: 0.81, csi_20: 0.69, csi_30: 0.57, pod: 0.85, far: 0.15, bias: 1.02 },
+    metrics: { mae: 2.18, rmse: 3.87, csi: 0.69, csi_10: 0.81, csi_20: 0.69, csi_30: 0.57, pod: 0.85, far: 0.15, bias: 1.02 },
   },
   7: {
     params: { model_version: 'v3', forecast_steps: [10,20,30,60], include_preview_image: true, run_datetime: '202606031400' },

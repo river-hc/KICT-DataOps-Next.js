@@ -13,7 +13,6 @@ import {
   type TrainingJob,
   type SystemStatus,
 } from '@/lib/api';
-import { MOCK_EXPERIMENT_JOBS, MOCK_TRAINING_JOBS } from '@/lib/mockData';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
 
@@ -218,10 +217,10 @@ function Dashboard() {
     await Promise.all([
       getExperimentJobs()
         .then(data => setExpJobs(data))
-        .catch(() => setExpJobs(MOCK_EXPERIMENT_JOBS)),
+        .catch(() => setExpJobs([])),
       getTrainings()
         .then(data => setTrainJobs(data))
-        .catch(() => setTrainJobs(MOCK_TRAINING_JOBS)),
+        .catch(() => setTrainJobs([])),
       getSystemStatus().then(setSystem).catch(() => {}),
     ]);
   }, []);

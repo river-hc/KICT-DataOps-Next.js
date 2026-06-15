@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, getTrainingResult, type TrainingJob, type TrainingResult } from '@/lib/api';
-import { MOCK_EXPERIMENT_JOBS, fmtDateTime, fmtDuration } from '@/lib/mockData';
+import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 
 const METRIC_META: Record<string, { label: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    max: 6, higherBetter: false },
@@ -33,7 +33,7 @@ export default function ExperimentResults() {
   useEffect(() => {
     getExperimentJobs()
       .then(data => setJobs(data.filter(j => j.status === 'COMPLETED')))
-      .catch(() => setJobs(MOCK_EXPERIMENT_JOBS.filter(j => j.status === 'COMPLETED')))
+      .catch(() => setJobs([]))
       .finally(() => setLoading(false));
   }, []);
 

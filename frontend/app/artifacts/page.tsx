@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
-import { MOCK_EXPERIMENT_JOBS, MOCK_ARTIFACTS } from '@/lib/mockData';
 
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
@@ -44,7 +43,7 @@ export default function Artifacts() {
   useEffect(() => {
     getExperimentJobs()
       .then(data => setTrainings(data))
-      .catch(() => setTrainings(MOCK_EXPERIMENT_JOBS))
+      .catch(() => setTrainings([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -57,7 +56,7 @@ export default function Artifacts() {
       const data = await getArtifactsByRun(job.run_id);
       setArtifacts(data);
     } catch {
-      setArtifacts(MOCK_ARTIFACTS[job.run_id] ?? []);
+      setArtifacts([]);
     } finally {
       setArtLoading(false);
     }
