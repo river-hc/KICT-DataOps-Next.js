@@ -5,11 +5,8 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, type TrainingJob } from '@/lib/api';
 import {
-  MOCK_EXPERIMENTS, MOCK_EXPERIMENT_JOBS,
-  type MockExperiment,
-} from '@/lib/mockData';
-import {
   loadClientExperiments, saveClientExperiment, loadExpTcMap,
+  type ClientExperiment,
 } from '@/lib/experimentStore';
 
 // ─── 상태 요약 계산 ───────────────────────────────────────────────────────────
@@ -123,7 +120,7 @@ export default function ExperimentsPage() {
   const [showModal,   setShowModal]   = useState(false);
   const [expJobs,     setExpJobs]     = useState<TrainingJob[]>([]);
   const [loading,     setLoading]     = useState(true);
-  const [clientExps,  setClientExps]  = useState<MockExperiment[]>([]);
+  const [clientExps,  setClientExps]  = useState<ClientExperiment[]>([]);
   const [tcMap,       setTcMap]       = useState<Record<number, number[]>>({});
 
   useEffect(() => {
@@ -131,10 +128,11 @@ export default function ExperimentsPage() {
     setTcMap(loadExpTcMap());
   }, []);
 
+  // 실 백엔드 작업 목록 (사용자 추가 TC 매칭용)
   const fetchJobs = useCallback(() => {
     getExperimentJobs()
       .then(data => setExpJobs(data))
-      .catch(() => setExpJobs(MOCK_EXPERIMENT_JOBS))
+      .catch(() => setExpJobs([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -147,10 +145,10 @@ export default function ExperimentsPage() {
     return () => clearInterval(id);
   }, [expJobs]);
 
-  const allExps = [...MOCK_EXPERIMENTS, ...clientExps];
+  const allExps = clientExps;
 
   function handleCreateExp(name: string, desc: string) {
-    const newExp: MockExperiment = {
+    const newExp: ClientExperiment = {
       id: Date.now(),
       name,
       description: desc,
@@ -205,8 +203,10 @@ export default function ExperimentsPage() {
           </thead>
           <tbody>
             {allExps.map(exp => {
-              const allTcIds = Array.from(new Set([...exp.tc_job_ids, ...(tcMap[exp.id] ?? [])]));
-              const tcJobs   = expJobs.filter(j => allTcIds.includes(j.job_id));
+              // TC = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+              const userIds  = tcMap[exp.id] ?? [];
+              const tcJobs   = expJobs.filter(j => userIds.includes(j.job_id));
+              const tcCount  = userIds.length;
               const counts   = calcStatusCounts(tcJobs);
               const latestTs = tcJobs.reduce<string | null>((acc, j) => {
                 const ts = j.finished_at ?? j.started_at ?? j.created_at;
@@ -226,10 +226,10 @@ export default function ExperimentsPage() {
                     <span className="line-clamp-1">{exp.description || '-'}</span>
                   </td>
                   <td className="px-5 py-3">
-                    <span className="font-mono text-sm text-gray-700">{allTcIds.length}개</span>
+                    <span className="font-mono text-sm text-gray-700">{tcCount}개</span>
                   </td>
                   <td className="px-5 py-3">
-                    <StatusSummary counts={counts} total={allTcIds.length} />
+                    <StatusSummary counts={counts} total={tcCount} />
                   </td>
                   <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
                     {fmtDt(latestTs)}

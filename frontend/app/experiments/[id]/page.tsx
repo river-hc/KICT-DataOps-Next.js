@@ -5,17 +5,15 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getExperimentJobs, getModels, getTrainingLogs,
+  getExperimentJobs, getModels, getTrainingLogs, getTrainingResult,
   createExperimentJob, getObservationDatasets, createObservationDataset,
   fileToBase64, calculateTimestamp,
   type TrainingJob, type AscFileInput, type ModelVersion, type ObservationDataset,
+  type TrainingResult,
 } from '@/lib/api';
 import {
-  MOCK_EXPERIMENTS, MOCK_EXPERIMENT_JOBS, MOCK_DETAILS,
-  type MockExperiment,
-} from '@/lib/mockData';
-import {
-  loadClientExperiments, addTcToExpMap, getAllTcJobIds,
+  loadClientExperiments, addTcToExpMap, getUserTcJobIds, saveTcMemo,
+  type ClientExperiment,
 } from '@/lib/experimentStore';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
@@ -389,10 +387,12 @@ export default function ExperimentDetailPage() {
   const router = useRouter();
   const expId  = Number(params.id);
 
-  // 실험 환경 조회 (MOCK + localStorage client)
-  const [experiment, setExperiment] = useState<MockExperiment | null | undefined>(undefined);
-  const [tcJobIds,   setTcJobIds]   = useState<number[]>([]);
-  const [allJobs,    setAllJobs]    = useState<TrainingJob[]>([]);
+  // 실험 환경 조회 (클라이언트 localStorage 기준)
+  const [experiment, setExperiment] = useState<ClientExperiment | null | undefined>(undefined);
+  // TC = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+  const [userTcIds,  setUserTcIds]  = useState<number[]>([]);
+  const [realJobs,   setRealJobs]   = useState<TrainingJob[]>([]);
+  const [resultMap,  setResultMap]  = useState<Record<number, TrainingResult>>({});
   const [loading,    setLoading]    = useState(true);
   const [showModal,  setShowModal]  = useState(false);
   const [models,              setModels]              = useState<ModelVersion[]>([]);
@@ -402,43 +402,51 @@ export default function ExperimentDetailPage() {
   const [logsLoading,         setLogsLoading]         = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // 실험 환경 로드
+  // 실험 환경 로드 (클라이언트 localStorage 기준)
   useEffect(() => {
-    const found = MOCK_EXPERIMENTS.find(e => e.id === expId)
-      ?? loadClientExperiments().find(e => e.id === expId)
-      ?? null;
+    const found = loadClientExperiments().find(e => e.id === expId) ?? null;
     setExperiment(found);
-    if (found) {
-      setTcJobIds(getAllTcJobIds(found));
-    }
+    if (found) setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
 
   // TC Map 변경 반영 (TC 추가 후)
   const refreshTcIds = useCallback(() => {
-    const found = MOCK_EXPERIMENTS.find(e => e.id === expId)
-      ?? loadClientExperiments().find(e => e.id === expId)
-      ?? null;
-    if (found) setTcJobIds(getAllTcJobIds(found));
+    setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
 
-  // 작업 목록 로드
+  // 실 백엔드 작업 목록 로드
   const fetchJobs = useCallback(() => {
     getExperimentJobs()
-      .then(data => setAllJobs(data))
-      .catch(() => setAllJobs(MOCK_EXPERIMENT_JOBS))
+      .then(data => setRealJobs(data))
+      .catch(() => setRealJobs([]))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // 활성 작업 폴링
+  // TC = 이 실험에만 매핑된 실 백엔드 job
+  const tcJobs = realJobs.filter(j => userTcIds.includes(j.job_id));
+
+  // 완료된 TC의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
   useEffect(() => {
-    const tcJobs  = allJobs.filter(j => tcJobIds.includes(j.job_id));
-    const hasActive = tcJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
+    const completed = tcJobs.filter(j => j.status.toUpperCase() === 'COMPLETED' && !(j.job_id in resultMap));
+    if (completed.length === 0) return;
+    completed.forEach(j => {
+      getTrainingResult(j.job_id)
+        .then(r => setResultMap(prev => ({ ...prev, [j.job_id]: r })))
+        .catch(() => {});
+    });
+  }, [tcJobs, resultMap]);
+
+  // 활성 작업 폴링 (사용자 추가 TC가 실행 중일 때만)
+  useEffect(() => {
+    const hasActive = realJobs
+      .filter(j => userTcIds.includes(j.job_id))
+      .some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
     if (!hasActive) return;
-    const id = setInterval(() => getExperimentJobs().then(setAllJobs).catch(() => {}), POLL_MS);
+    const id = setInterval(() => getExperimentJobs().then(setRealJobs).catch(() => {}), POLL_MS);
     return () => clearInterval(id);
-  }, [allJobs, tcJobIds]);
+  }, [realJobs, userTcIds]);
 
   // 모델 목록 + 정답 데이터셋 로드
   useEffect(() => {
@@ -451,7 +459,7 @@ export default function ExperimentDetailPage() {
   }, []);
 
   // 실행 중 TC 로그
-  const selectedJob       = allJobs.find(j => j.job_id === selectedId) ?? null;
+  const selectedJob       = tcJobs.find(j => j.job_id === selectedId) ?? null;
   const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
 
   useEffect(() => {
@@ -507,8 +515,10 @@ export default function ExperimentDetailPage() {
     });
 
     // 실험 TC 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
+    // 메모도 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
     if (result?.job_id) {
       addTcToExpMap(expId, result.job_id);
+      if (memo) saveTcMemo(result.job_id, memo);
       refreshTcIds();
     }
     fetchJobs();
@@ -546,8 +556,7 @@ export default function ExperimentDetailPage() {
     );
   }
 
-  const tcJobs = allJobs.filter(j => tcJobIds.includes(j.job_id));
-  const totalTc = tcJobIds.length;
+  const totalTc = tcJobs.length;
 
   return (
     <Layout>
@@ -578,9 +587,6 @@ export default function ExperimentDetailPage() {
             {experiment.description && (
               <p className="text-sm text-gray-500 mt-1">{experiment.description}</p>
             )}
-            <p className="text-xs text-gray-400 mt-1">
-              ID: {expId} · {totalTc}개 TC · 생성일 {fmtDt(experiment.created_at)}
-            </p>
           </div>
           <button
             onClick={() => setShowModal(true)}
@@ -616,10 +622,10 @@ export default function ExperimentDetailPage() {
               const s          = job.status.toUpperCase();
               const isSelected = job.job_id === selectedId;
               const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
-              const detail     = MOCK_DETAILS[job.job_id];
-              const metrics    = detail?.metrics;
-              const modelVer   = detail?.params.model_version ?? '-';
-              const csi        = metrics ? (metrics.csi ?? metrics.csi_10 ?? null) : null;
+              const result     = resultMap[job.job_id];
+              const metrics    = result?.metrics;
+              const modelVer   = result?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+              const csi        = metrics?.csi ?? null;
 
               const mainRow = (
                 <tr
