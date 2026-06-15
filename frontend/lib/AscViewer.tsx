@@ -278,10 +278,12 @@ interface AscViewerProps {
   speed?:           number;
   onSpeedChange?:   (ms: number) => void;
   hideControls?:    boolean;
+  /** true: 컨테이너 높이에 맞춰 캔버스를 object-contain으로 축소 (한 화면 레이아웃용) */
+  fillHeight?:      boolean;
 }
 
 export default function AscViewer(props: AscViewerProps) {
-  const { steps, ascTexts, ascUrls, hideControls } = props;
+  const { steps, ascTexts, ascUrls, hideControls, fillHeight } = props;
 
   // ── Internal state (uncontrolled mode) ──
   const [_frameIdx,   _setFrameIdx]   = useState(0);
@@ -399,9 +401,9 @@ export default function AscViewer(props: AscViewerProps) {
   const stats     = curGrid ? calcStats(curGrid) : null;
 
   return (
-    <div>
+    <div className={fillHeight ? 'flex flex-col h-full min-h-0' : ''}>
       {/* 헤더 */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
           QPF 예측 슬라이드 (ASC)
         </p>
@@ -412,23 +414,25 @@ export default function AscViewer(props: AscViewerProps) {
         )}
       </div>
 
-      {/* 캔버스 영역 */}
-      <div className="relative bg-gray-950 rounded-xl overflow-hidden">
+      {/* 캔버스 영역 — fillHeight: 남은 높이에 맞춰 object-contain으로 축소 */}
+      <div className={`relative bg-gray-950 rounded-xl overflow-hidden ${fillHeight ? 'flex-1 min-h-0' : ''}`}>
         <canvas
           ref={canvasRef}
           width={525}
           height={625}
-          className="w-full"
-          style={{ imageRendering: 'pixelated', display: 'block', height: 'auto' }}
+          className={fillHeight ? 'w-full h-full' : 'w-full'}
+          style={fillHeight
+            ? { imageRendering: 'pixelated', display: 'block', objectFit: 'contain' }
+            : { imageRendering: 'pixelated', display: 'block', height: 'auto' }}
         />
 
-        {/* 한반도 지형 + 격자 오버레이 */}
+        {/* 한반도 지형 + 격자 오버레이 — fillHeight 시 캔버스 letterbox에 맞춰 meet 정렬 */}
         {curGrid && (
           <svg
             viewBox={`0 0 ${curGrid.header.ncols} ${curGrid.header.nrows}`}
             className="absolute inset-0 w-full h-full"
             style={{ pointerEvents: 'none' }}
-            preserveAspectRatio="none"
+            preserveAspectRatio={fillHeight ? 'xMidYMid meet' : 'none'}
           >
             <KoreaOverlay header={curGrid.header} />
           </svg>
