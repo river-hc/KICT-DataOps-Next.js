@@ -2,7 +2,7 @@
 
 /**
  * Design C — Top Nav + Vertical Accordion (port 3002, modern/violet theme)
- * Depth 1: 상단 네비게이션 바 (LayoutTopNav, 드롭다운 메뉴)
+ * Depth 1: 상단 네비게이션 바 (드롭다운 메뉴)
  * Depth 2: 상태별 섹션 목록 (위→아래 수직 배치)
  * Depth 3: 잡 항목 클릭 시 하단으로 펼쳐지는 상세 드롭다운
  */
