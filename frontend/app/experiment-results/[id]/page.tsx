@@ -8,6 +8,7 @@ import AscViewer, { COLORBAR } from '@/lib/AscViewer';
 import { getTraining, getTrainingResult, getTrainingLogs, type TrainingJob, type TrainingResult } from '@/lib/api';
 import { fmtDateTime, fmtDuration, fmtRunDatetime } from '@/lib/mockData';
 import { loadClientExperiments, loadExpTcMap, loadTcMemo } from '@/lib/experimentStore';
+import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
@@ -16,8 +17,6 @@ const METRIC_META: Record<string, { label: string; unit: string; max: number; hi
   rmse: { label: 'RMSE', unit: 'mm', max: 8, higherBetter: false },
   csi:  { label: 'CSI',  unit: '',   max: 1, higherBetter: true  },
 };
-
-const SHOW_METRICS = new Set(Object.keys(METRIC_META));
 
 function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
   const meta = METRIC_META[metricKey] ?? { label: metricKey.toUpperCase(), unit: '', max: 1, higherBetter: true };
@@ -134,7 +133,8 @@ export default function ExperimentResultDetail() {
     ? stepMin === stepMax ? `${stepMin}분` : `${stepMin}분 ~ ${stepMax}분`
     : '-';
 
-  const hasMetrics     = detail?.metrics && Object.keys(detail.metrics).length > 0;
+  // 성능 지표 — 전체 단일 값(MAE/RMSE/CSI). 실데이터 우선, 없으면 화면 확인용 샘플로 폴백
+  const pm             = metricsOrSample(detail?.metrics, jobId ?? 0, detail?.params.model_version ?? null);
   const metricSources  = detail?.metric_sources;
   const matchedCount   = metricSources?.matched_targets ? Object.keys(metricSources.matched_targets).length : 0;
   const ascUrls        = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0 ? detail.asc_urls : undefined;
@@ -290,24 +290,21 @@ export default function ExperimentResultDetail() {
           {/* 카드 1행 배치: 성능 지표 · 모델 설정 · 검증 데이터 · 실행 일정 */}
           <div className="grid grid-cols-4 gap-3 flex-shrink-0">
 
-            {/* 성능 지표 */}
+            {/* 성능 지표 — 전체 단일 값 (MAE / RMSE / CSI) */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">성능 지표</p>
-              {hasMetrics ? (
-                <div className="space-y-0.5">
-                  {Object.entries(detail!.metrics)
-                    .filter(([k]) => SHOW_METRICS.has(k))
-                    .map(([k, v]) => <MetricBar key={k} metricKey={k} value={v} />)}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-4 gap-1.5">
-                  <svg className="w-7 h-7 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  <p className="text-xs text-gray-400 text-center">검증 지표 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">정답 데이터셋 연동 후 제공</p>
-                </div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">성능 지표</p>
+                {pm.isSample && (
+                  <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">샘플</span>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                {pm.summary.mae  != null && <MetricBar metricKey="mae"  value={pm.summary.mae} />}
+                {pm.summary.rmse != null && <MetricBar metricKey="rmse" value={pm.summary.rmse} />}
+                {pm.summary.csi  != null && <MetricBar metricKey="csi"  value={pm.summary.csi} />}
+              </div>
+              {pm.isSample && (
+                <p className="text-[10px] text-gray-300 mt-1.5">백엔드 지표 연동 시 실데이터로 자동 대체</p>
               )}
             </div>
 

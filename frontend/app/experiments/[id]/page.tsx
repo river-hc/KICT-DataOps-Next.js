@@ -16,6 +16,7 @@ import {
   type ClientExperiment,
 } from '@/lib/experimentStore';
 import { getVersionAliases } from '@/lib/modelStore';
+import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -591,6 +592,23 @@ export default function ExperimentDetailPage() {
 
   const totalTc = tcJobs.length;
 
+  // 완료 TC별 요약 지표(실데이터 없으면 샘플) + 버전 비교용 최고값 계산
+  const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
+  let anySample = false;
+  for (const job of tcJobs) {
+    if (job.status.toUpperCase() !== 'COMPLETED') continue;
+    const ver = resultMap[job.job_id]?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? null;
+    const pm = metricsOrSample(resultMap[job.job_id]?.metrics, job.job_id, ver);
+    tcSummary[job.job_id] = { ...pm.summary, isSample: pm.isSample };
+    if (pm.isSample) anySample = true;
+  }
+  const completedSummaries = Object.values(tcSummary);
+  const best = {
+    mae:  completedSummaries.length ? Math.min(...completedSummaries.map(s => s.mae  ?? Infinity)) : null,
+    rmse: completedSummaries.length ? Math.min(...completedSummaries.map(s => s.rmse ?? Infinity)) : null,
+    csi:  completedSummaries.length ? Math.max(...completedSummaries.map(s => s.csi  ?? -Infinity)) : null,
+  };
+
   return (
     <Layout>
       {showModal && (
@@ -636,7 +654,13 @@ export default function ExperimentDetailPage() {
       {/* TC 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-          <span className="text-sm font-semibold text-gray-700">테스트 케이스 (TC) 목록</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">테스트 케이스 (TC) 목록</span>
+            <span className="text-[11px] text-gray-400">· 지표 최고값 <span className="text-emerald-600 font-semibold">강조</span></span>
+            {anySample && (
+              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">샘플 지표</span>
+            )}
+          </div>
           {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
         </div>
 
@@ -656,9 +680,12 @@ export default function ExperimentDetailPage() {
               const isSelected = job.job_id === selectedId;
               const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
               const result     = resultMap[job.job_id];
-              const metrics    = result?.metrics;
               const modelVer   = result?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
-              const csi        = metrics?.csi ?? null;
+              const sum        = tcSummary[job.job_id];
+              const fmtCell = (v: number | null | undefined, isBest: boolean) =>
+                v == null
+                  ? <span className="text-gray-300">-</span>
+                  : <span className={isBest ? 'font-bold text-emerald-600' : 'text-gray-700'}>{v.toFixed(3)}</span>;
 
               const mainRow = (
                 <tr
@@ -690,14 +717,14 @@ export default function ExperimentDetailPage() {
                       {modelVer}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700 tabular-nums">
-                    {metrics?.mae != null ? metrics.mae.toFixed(3) : '-'}
+                  <td className="px-4 py-3 font-mono text-xs tabular-nums">
+                    {fmtCell(sum?.mae, sum?.mae != null && sum.mae === best.mae)}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700 tabular-nums">
-                    {metrics?.rmse != null ? metrics.rmse.toFixed(3) : '-'}
+                  <td className="px-4 py-3 font-mono text-xs tabular-nums">
+                    {fmtCell(sum?.rmse, sum?.rmse != null && sum.rmse === best.rmse)}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700 tabular-nums">
-                    {csi != null ? csi.toFixed(3) : '-'}
+                  <td className="px-4 py-3 font-mono text-xs tabular-nums">
+                    {fmtCell(sum?.csi, sum?.csi != null && sum.csi === best.csi)}
                   </td>
                 </tr>
               );
