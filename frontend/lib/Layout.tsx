@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -8,6 +8,30 @@ import Header from './Header';
 import Footer from './Footer';
 
 const THEME = process.env.NEXT_PUBLIC_THEME;
+const STATUS_CHECK_MS = 30_000;
+const STATUS_TIMEOUT_MS = 5_000;
+
+type SidebarSystemStatus = 'checking' | 'online' | 'offline';
+
+async function checkBackendOnline(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
+
+  try {
+    const token = window.localStorage.getItem('token');
+    const res = await fetch('/api/v1/trainings', {
+      cache: 'no-store',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      signal: controller.signal,
+    });
+
+    return res.ok || res.status === 401 || res.status === 403;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 // ─── 사이드바 SVG 아이콘 ──────────────────────────────────────────────────────
 
@@ -99,6 +123,8 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
   const pathname = usePathname();
   const [open, setOpen]           = useState(true);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({ '학습': true });
+  const [systemStatus, setSystemStatus] = useState<SidebarSystemStatus>('checking');
+  const [lastStatusCheck, setLastStatusCheck] = useState<Date | null>(null);
 
   const isModern = THEME === 'modern';
   const entries: NavEntry[] = isModern ? modernNavItems : navItems;
@@ -109,6 +135,48 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
   const isGroupActive = (children: NavItem[]) => children.some(c => isItemActive(c.href));
 
   // 헤더 타이틀은 lib/Header.tsx의 ROUTE_TITLES에서 라우트 기반으로 결정
+
+  useEffect(() => {
+    let mounted = true;
+
+    const refreshStatus = async () => {
+      const online = await checkBackendOnline();
+      if (!mounted) return;
+      setSystemStatus(online ? 'online' : 'offline');
+      setLastStatusCheck(new Date());
+    };
+
+    refreshStatus();
+    const timer = window.setInterval(refreshStatus, STATUS_CHECK_MS);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const statusMeta = {
+    checking: {
+      label: 'Checking...',
+      color: '#d97706',
+      title: '백엔드 API 연결 확인 중',
+    },
+    online: {
+      label: 'System Online',
+      color: 'var(--status-text)',
+      title: '백엔드 API 응답 정상',
+    },
+    offline: {
+      label: 'System Offline',
+      color: '#dc2626',
+      title: '백엔드 API 연결 실패',
+    },
+  } satisfies Record<SidebarSystemStatus, { label: string; color: string; title: string }>;
+
+  const currentStatus = statusMeta[systemStatus];
+  const statusTitle = lastStatusCheck
+    ? `${currentStatus.title} · 마지막 확인 ${lastStatusCheck.toLocaleTimeString('ko-KR')}`
+    : currentStatus.title;
 
   return (
     // 헤더·푸터는 viewport 최상단·최하단 고정, 스크롤은 main 내부에서만 발생.
@@ -255,9 +323,13 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
         {/* 상태 — 푸터와 동일 높이(h-12)로 상단 경계선 일치 */}
         {open && (
           <div className="h-12 flex-shrink-0 flex items-center px-4 border-t" style={{ borderColor: 'var(--sidebar-border)' }}>
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--status-text)' }}>
-              <span className="w-2 h-2 rounded-full bg-current animate-pulse flex-shrink-0" />
-              <span>System Online</span>
+            <div className="flex items-center gap-2 text-sm" style={{ color: currentStatus.color }} title={statusTitle}>
+              <span
+                className={`w-2 h-2 rounded-full bg-current flex-shrink-0 ${
+                  systemStatus === 'offline' ? '' : 'animate-pulse'
+                }`}
+              />
+              <span>{currentStatus.label}</span>
             </div>
           </div>
         )}
