@@ -11,6 +11,13 @@ export interface ClientExperiment {
 const CLIENT_EXP_KEY = 'kict_client_experiments';
 const EXP_TC_MAP_KEY = 'kict_exp_tc_map';
 const TC_MEMO_KEY    = 'kict_tc_memo';
+const TC_MODEL_KEY   = 'kict_tc_model_meta';
+
+export interface TcModelMeta {
+  modelVersion: string;
+  architecture: 'single' | 'multi' | null;
+  requester?: string | null;
+}
 
 export function loadClientExperiments(): ClientExperiment[] {
   if (typeof window === 'undefined') return [];
@@ -57,6 +64,24 @@ export function loadTcMemo(jobId: number): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const store: Record<number, string> = JSON.parse(localStorage.getItem(TC_MEMO_KEY) ?? '{}');
+    return store[jobId] ?? null;
+  } catch { return null; }
+}
+
+// ─── TC 모델 메타 (백엔드 mode 응답 보정용) ─────────────────────────────────
+
+export function saveTcModelMeta(jobId: number, meta: TcModelMeta): void {
+  if (typeof window === 'undefined') return;
+  let store: Record<number, TcModelMeta> = {};
+  try { store = JSON.parse(localStorage.getItem(TC_MODEL_KEY) ?? '{}'); } catch { /* noop */ }
+  store[jobId] = meta;
+  localStorage.setItem(TC_MODEL_KEY, JSON.stringify(store));
+}
+
+export function loadTcModelMeta(jobId: number): TcModelMeta | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const store: Record<number, TcModelMeta> = JSON.parse(localStorage.getItem(TC_MODEL_KEY) ?? '{}');
     return store[jobId] ?? null;
   } catch { return null; }
 }

@@ -6,16 +6,17 @@ import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
   getExperimentJobs, getModels, getTrainingLogs, getTrainingResult,
-  createExperimentJob, getObservationDatasets, createObservationDataset,
-  fileToBase64, calculateTimestamp,
-  type TrainingJob, type AscFileInput, type ModelVersion, type ObservationDataset,
+  createExperimentJob,
+  fileToBase64, calculateTimestamp, getUsername,
+  type TrainingJob, type AscFileInput, type ModelVersion,
   type TrainingResult,
 } from '@/lib/api';
 import {
   loadClientExperiments, addTcToExpMap, getUserTcJobIds, saveTcMemo,
+  loadTcModelMeta, saveTcModelMeta,
   type ClientExperiment,
 } from '@/lib/experimentStore';
-import { getVersionAliases } from '@/lib/modelStore';
+import { applyStoredModelStatuses } from '@/lib/modelStore';
 import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
@@ -38,9 +39,11 @@ type SlotKey = 't0' | 't1' | 't2' | 't3';
 
 interface FileState { file: File | null; name: string | null; }
 interface FormFiles { t0: FileState; t1: FileState; t2: FileState; t3: FileState; }
+interface AscFolderState { folderName: string; files: File[]; mappedFiles: FormFiles; }
 
 const EMPTY_FILE:  FileState = { file: null, name: null };
 const EMPTY_FILES: FormFiles = { t0: EMPTY_FILE, t1: EMPTY_FILE, t2: EMPTY_FILE, t3: EMPTY_FILE };
+const EMPTY_ASC_FOLDER: AscFolderState = { folderName: '', files: [], mappedFiles: EMPTY_FILES };
 
 const FILE_SLOTS = [
   { key: 't0' as SlotKey, label: 'T-30분',   desc: '30분 전 관측', offset: -30 },
@@ -66,6 +69,37 @@ function getCompactDtFromFilename(filename: string | null): string | null {
   const s = filename.match(/(20\d{2})[-_]?(\d{2})[-_]?(\d{2})[-_T]?(\d{2})[-_]?(\d{2})/);
   if (!s) return null;
   return `${s[1]}${s[2]}${s[3]}${s[4]}${s[5]}`;
+}
+
+function getFilePath(file: File): string {
+  return (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+}
+
+function getFolderNameFromFiles(files: File[]): string {
+  const first = files[0];
+  if (!first) return '';
+  const relativePath = getFilePath(first);
+  return relativePath.includes('/') ? relativePath.split('/')[0] : 'ASC 파일 묶음';
+}
+
+function mapAscFiles(files: File[]): FormFiles {
+  const usable = files
+    .filter(file => /\.(asc|txt|csv|dat)$/i.test(file.name))
+    .sort((a, b) => {
+      const aDt = getCompactDtFromFilename(a.name);
+      const bDt = getCompactDtFromFilename(b.name);
+      if (aDt && bDt && aDt !== bDt) return aDt.localeCompare(bDt);
+      if (aDt && !bDt) return -1;
+      if (!aDt && bDt) return 1;
+      return getFilePath(a).localeCompare(getFilePath(b));
+    });
+  const latest = usable.slice(-4);
+  return {
+    t0: latest[0] ? { file: latest[0], name: latest[0].name } : EMPTY_FILE,
+    t1: latest[1] ? { file: latest[1], name: latest[1].name } : EMPTY_FILE,
+    t2: latest[2] ? { file: latest[2], name: latest[2].name } : EMPTY_FILE,
+    t3: latest[3] ? { file: latest[3], name: latest[3].name } : EMPTY_FILE,
+  };
 }
 
 function fmtDt(iso: string | null): string {
@@ -133,7 +167,7 @@ function ProgressBar({ progress, currentEpoch, totalEpochs }: {
 function FileSlot({ label, desc, state, onChange }: {
   label: string; desc: string; state: FileState; onChange: (f: File | null) => void;
 }) {
-  const ref = useRef<HTMLInputElement>(null);
+  const ref = useRef<HTMLInputElement | null>(null);
   return (
     <div
       onClick={() => ref.current?.click()}
@@ -166,63 +200,229 @@ function FileSlot({ label, desc, state, onChange }: {
   );
 }
 
+function AscFolderSlot({ state, onChange }: {
+  state: AscFolderState;
+  onChange: (state: AscFolderState) => void;
+}) {
+  const ref = useRef<HTMLInputElement | null>(null);
+  const mappedEntries = FILE_SLOTS.map(slot => ({ ...slot, file: state.mappedFiles[slot.key] }));
+  const mappedCount = mappedEntries.filter(entry => entry.file.file).length;
+
+  const bindDirectoryInput = (node: HTMLInputElement | null) => {
+    ref.current = node;
+    node?.setAttribute('webkitdirectory', '');
+    node?.setAttribute('directory', '');
+  };
+
+  const handleDirectorySelect = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0) return;
+    onChange({
+      folderName: getFolderNameFromFiles(files),
+      files,
+      mappedFiles: mapAscFiles(files),
+    });
+  };
+
+  return (
+    <div
+      onClick={() => ref.current?.click()}
+      className={`relative border-2 border-dashed rounded-xl p-4 cursor-pointer transition-colors ${
+        state.files.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50/60'
+      }`}
+    >
+      <input
+        ref={bindDirectoryInput}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => {
+          handleDirectorySelect(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+          state.files.length > 0 ? 'bg-blue-100 text-blue-600' : 'bg-white text-gray-300'
+        }`}>
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-gray-700">입력 ASC 폴더</p>
+          <p className={`text-xs mt-1 truncate ${state.files.length > 0 ? 'font-mono text-blue-700 font-semibold' : 'text-gray-400'}`}>
+            {state.files.length > 0 ? `${state.folderName} · ${state.files.length}개 파일` : '클릭하여 폴더 선택'}
+          </p>
+        </div>
+        {state.files.length > 0 && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onChange(EMPTY_ASC_FOLDER); }}
+            className="p-1.5 rounded-md text-blue-400 hover:text-blue-700 hover:bg-blue-100 flex-shrink-0"
+            aria-label="선택 해제"
+          >
+            <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <path d="M2 2l12 12M14 2L2 14" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {state.files.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          {mappedEntries.map(entry => (
+            <div key={entry.key} className={`rounded-lg px-3 py-2 border ${
+              entry.file.file ? 'bg-white border-blue-100' : 'bg-gray-50 border-gray-100'
+            }`}>
+              <p className="text-[11px] font-semibold text-gray-500">{entry.label}</p>
+              <p className={`text-[11px] mt-0.5 truncate ${entry.file.file ? 'font-mono text-gray-800' : 'text-red-400'}`}>
+                {entry.file.name ?? '매핑 파일 없음'}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {state.files.length > 0 && mappedCount < 4 && (
+        <p className="text-[11px] text-red-500 mt-2">실험 실행에는 최소 4개의 ASC 파일이 필요합니다.</p>
+      )}
+    </div>
+  );
+}
+
+function DirectorySlot({ label, placeholder, value, onChange }: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (path: string) => void;
+}) {
+  const ref = useRef<HTMLInputElement | null>(null);
+
+  const bindDirectoryInput = (node: HTMLInputElement | null) => {
+    ref.current = node;
+    node?.setAttribute('webkitdirectory', '');
+    node?.setAttribute('directory', '');
+  };
+
+  const handleDirectorySelect = (fileList: FileList | null) => {
+    const first = fileList?.[0] as (File & { webkitRelativePath?: string }) | undefined;
+    if (!first) return;
+    const relativePath = first.webkitRelativePath ?? '';
+    const selectedFolder = relativePath.split('/')[0] || first.name;
+    onChange(selectedFolder);
+  };
+
+  const openPicker = async () => {
+    const picker = (window as Window & {
+      showDirectoryPicker?: () => Promise<{ name: string }>;
+    }).showDirectoryPicker;
+
+    if (picker) {
+      try {
+        const handle = await picker();
+        onChange(handle.name);
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+      }
+    }
+
+    ref.current?.click();
+  };
+
+  return (
+    <div
+      onClick={openPicker}
+      className={`relative flex items-center gap-3 border-2 border-dashed rounded-xl p-4 cursor-pointer transition-colors ${
+        value ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50/60'
+      }`}
+    >
+      <input
+        ref={bindDirectoryInput}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => {
+          handleDirectorySelect(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+        value ? 'bg-blue-100 text-blue-600' : 'bg-white text-gray-300'
+      }`}>
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-bold text-gray-700">{label}</p>
+        <p className={`text-xs mt-1 truncate ${value ? 'font-mono text-blue-700 font-semibold' : 'text-gray-400'}`}>
+          {value || placeholder}
+        </p>
+      </div>
+      {value && (
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onChange(''); }}
+          className="p-1.5 rounded-md text-blue-400 hover:text-blue-700 hover:bg-blue-100 flex-shrink-0"
+          aria-label="선택 해제"
+        >
+          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <path d="M2 2l12 12M14 2L2 14" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── TC 추가 모달 (NewExperimentModal) ────────────────────────────────────────
 
 function AddTcModal({
-  onClose, onSubmit, models, observationDatasets, onDatasetUploaded,
+  onClose, onSubmit, models,
 }: {
   onClose: () => void;
-  onSubmit: (files: FormFiles, modelVersion: string, memo: string, observationDatasetId: number | null) => Promise<void>;
+  onSubmit: (
+    files: FormFiles,
+    modelVersion: string,
+    memo: string,
+    observationDatasetDir: string | null,
+    outputDir: string | null,
+  ) => Promise<void>;
   models: ModelVersion[];
-  observationDatasets: ObservationDataset[];
-  onDatasetUploaded: (ds: ObservationDataset) => void;
 }) {
-  const [modelVersion,        setModelVersion]        = useState<string>(() => models[0]?.version ?? '');
-  const [files,               setFiles]               = useState<FormFiles>(EMPTY_FILES);
+  const productionModel = models[0] ?? null;
+  const productionArch = productionModel?.metrics?.architecture as string | undefined;
+  const [ascFolder,           setAscFolder]           = useState<AscFolderState>(EMPTY_ASC_FOLDER);
   const [memo,                setMemo]                = useState('');
   const [submitting,          setSubmitting]          = useState(false);
   const [error,               setError]               = useState<string | null>(null);
-  const [obsDatasetId,        setObsDatasetId]        = useState<number | null>(null);
-  const [showDatasetUpload,   setShowDatasetUpload]   = useState(false);
-  const [datasetName,         setDatasetName]         = useState('');
-  const [datasetFolderName,   setDatasetFolderName]   = useState('');
-  const [datasetDescription,  setDatasetDescription]  = useState('');
-  const [datasetFiles,        setDatasetFiles]        = useState<File[]>([]);
-  const [datasetUploading,    setDatasetUploading]    = useState(false);
-  const [datasetUploadError,  setDatasetUploadError]  = useState<string | null>(null);
-
-  const handleFile = (key: SlotKey) => (file: File | null) =>
-    setFiles(prev => ({ ...prev, [key]: file ? { file, name: file.name } : EMPTY_FILE }));
+  const [obsDatasetDir,       setObsDatasetDir]       = useState('');
+  const [outputDir,           setOutputDir]           = useState('');
 
   const handleSubmit = async () => {
+    if (!productionModel) {
+      setError('운영 상태인 모델 버전이 없습니다.');
+      return;
+    }
+    if (Object.values(ascFolder.mappedFiles).some(file => !file.file)) {
+      setError('입력 ASC 폴더에서 최소 4개의 파일을 선택해주세요.');
+      return;
+    }
     setSubmitting(true); setError(null);
-    try   { await onSubmit(files, modelVersion, memo, obsDatasetId); onClose(); }
+    try {
+      await onSubmit(
+        ascFolder.mappedFiles,
+        productionModel.version,
+        memo,
+        obsDatasetDir.trim() || null,
+        outputDir.trim() || null,
+      );
+      onClose();
+    }
     catch (e: unknown) { setError(e instanceof Error ? e.message : '실험 시작에 실패했습니다.'); }
     finally { setSubmitting(false); }
-  };
-
-  const canUploadDataset = datasetName.trim().length > 0 && datasetFiles.length > 0 && !datasetUploading;
-
-  const handleDatasetUpload = async () => {
-    if (!canUploadDataset) return;
-    setDatasetUploading(true);
-    setDatasetUploadError(null);
-    try {
-      const ds = await createObservationDataset({
-        name: datasetName.trim(),
-        folder_name: datasetFolderName.trim() || null,
-        description: datasetDescription.trim() || null,
-        files: datasetFiles,
-      });
-      onDatasetUploaded(ds);
-      setObsDatasetId(ds.id);
-      setDatasetName(''); setDatasetFolderName(''); setDatasetDescription(''); setDatasetFiles([]);
-      setShowDatasetUpload(false);
-    } catch (e: unknown) {
-      setDatasetUploadError(e instanceof Error ? e.message : '정답 데이터셋 업로드에 실패했습니다.');
-    } finally {
-      setDatasetUploading(false);
-    }
   };
 
   return (
@@ -231,7 +431,7 @@ function AddTcModal({
       <div className="relative z-10 w-full max-w-2xl mx-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">TC 추가</h2>
+            <h2 className="text-lg font-bold text-gray-900">새 실험 실행</h2>
             <p className="text-xs text-gray-400 mt-0.5">QPF 모델로 강우장을 예측합니다. 선행시간 10~180분 전체 자동 계산.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
@@ -242,55 +442,24 @@ function AddTcModal({
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1.5">모델 버전</label>
-
-            {/* 별칭 빠른 선택 — @champion 등 별칭으로 현재 가리키는 버전을 선택 */}
-            {(() => {
-              const aliasEntries = models.flatMap(m =>
-                getVersionAliases(m.model_name, m.id).map(alias => ({ alias, version: m.version }))
-              ).sort((a, b) => a.alias.localeCompare(b.alias));
-              if (aliasEntries.length === 0) return null;
-              return (
-                <div className="flex items-center gap-1.5 flex-wrap mb-2">
-                  <span className="text-[11px] text-gray-400">별칭으로 선택:</span>
-                  {aliasEntries.map(({ alias, version }) => (
-                    <button
-                      key={alias}
-                      type="button"
-                      onClick={() => setModelVersion(version)}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition ${
-                        modelVersion === version
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100'
-                      }`}
-                      title={`${alias} → ${version}`}
-                    >
-                      @{alias}
-                      <span className={`font-mono ${modelVersion === version ? 'text-blue-100' : 'text-blue-400'}`}>{version}</span>
-                    </button>
-                  ))}
-                </div>
-              );
-            })()}
-
-            <select
-              value={modelVersion}
-              onChange={e => setModelVersion(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              {models.map(m => {
-                const arch = m.metrics?.architecture as string | undefined;
-                const archLabel = arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '';
-                const aliases = getVersionAliases(m.model_name, m.id);
-                const aliasLabel = aliases.length ? ` · ${aliases.map(a => `@${a}`).join(' ')}` : '';
-                return (
-                  <option key={m.id} value={m.version}>
-                    {m.version}{archLabel ? ` (${archLabel})` : ''}{aliasLabel}
-                  </option>
-                );
-              })}
-            </select>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">운영 모델</p>
+              {productionModel ? (
+                <p className="text-sm font-semibold text-gray-800 mt-1 truncate">
+                  {productionModel.model_name} · {productionModel.version}
+                  {productionArch && <span className="ml-1 text-xs text-gray-400">({productionArch})</span>}
+                </p>
+              ) : (
+                <p className="text-sm font-semibold text-red-500 mt-1">운영 모델 없음</p>
+              )}
+            </div>
+            {productionModel && (
+              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-1">production</span>
+            )}
+            {!productionModel && (
+              <p className="text-[11px] text-red-500 mt-1.5">모델 레지스트리에서 운영 모델을 먼저 선택해주세요.</p>
+            )}
           </div>
 
           <div className="bg-blue-50 rounded-xl px-4 py-3 flex items-center justify-between">
@@ -303,99 +472,35 @@ function AddTcModal({
 
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">입력 ASC 파일</p>
-            <div className="grid grid-cols-2 gap-3">
-              {FILE_SLOTS.map(slot => (
-                <FileSlot key={slot.key} label={slot.label} desc={slot.desc}
-                  state={files[slot.key]} onChange={handleFile(slot.key)} />
-              ))}
-            </div>
-            <p className="text-[11px] text-gray-400 mt-2">파일 없이도 실험을 시작할 수 있습니다.</p>
+            <AscFolderSlot state={ascFolder} onChange={setAscFolder} />
+            <p className="text-[11px] text-gray-400 mt-2">폴더 안 파일명 시각 기준으로 최근 4개 파일을 T-30/T-20/T-10/T에 자동 매핑합니다.</p>
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-gray-600">
-                성능 지표 정답 데이터셋 <span className="text-gray-400 font-normal">(선택)</span>
-              </label>
-              <button type="button" onClick={() => setShowDatasetUpload(v => !v)}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-50 transition-colors">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                데이터셋 업로드
-              </button>
-            </div>
-            <div className="space-y-2">
-              {observationDatasets.length === 0 ? (
-                <div className="border border-dashed border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
-                  <p className="text-xs text-gray-400">등록된 정답 데이터셋이 없습니다.</p>
-                </div>
-              ) : (
-                <select value={obsDatasetId ?? ''} onChange={e => setObsDatasetId(e.target.value === '' ? null : Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="">선택 안 함</option>
-                  {observationDatasets.map(ds => (
-                    <option key={ds.id} value={ds.id}>{ds.name} ({ds.file_count}개 파일)</option>
-                  ))}
-                </select>
-              )}
-              <p className="text-[11px] text-gray-400">
-                run_datetime과 forecast step 기준으로 정답 파일을 매칭합니다.
-              </p>
-              {showDatasetUpload && (
-                <div className="border border-gray-200 rounded-xl bg-gray-50 px-4 py-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-medium text-gray-500">데이터셋 이름</label>
-                      <input value={datasetName} onChange={e => setDatasetName(e.target.value)}
-                        placeholder="예: 2026_summer_validation"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-medium text-gray-500">폴더명 <span className="text-gray-400 font-normal">(선택)</span></label>
-                      <input value={datasetFolderName} onChange={e => setDatasetFolderName(e.target.value)}
-                        placeholder="비우면 백엔드 기본값 사용"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-medium text-gray-500">설명 <span className="text-gray-400 font-normal">(선택)</span></label>
-                    <input value={datasetDescription} onChange={e => setDatasetDescription(e.target.value)}
-                      placeholder="테스트 조건이나 기준 시각 메모"
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-medium text-gray-500">정답 ASC 파일</label>
-                    <input type="file" accept=".asc" multiple onChange={e => setDatasetFiles(Array.from(e.target.files ?? []))}
-                      className="w-full text-xs text-gray-500 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-white file:text-xs file:font-semibold file:text-gray-600 hover:file:bg-gray-100" />
-                    <p className="text-[11px] text-gray-400">파일명은 QPE_YYYYMMDDHHMM.asc 형식이어야 합니다.</p>
-                    {datasetFiles.length > 0 && (
-                      <div className="max-h-20 overflow-y-auto rounded-lg border border-gray-100 bg-white px-3 py-2">
-                        {datasetFiles.map(file => (
-                          <p key={`${file.name}-${file.size}`} className="text-[11px] text-gray-500 truncate">{file.name}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      {datasetUploadError && <p className="text-xs text-red-500">{datasetUploadError}</p>}
-                    </div>
-                    <button type="button" onClick={handleDatasetUpload} disabled={!canUploadDataset}
-                      className="px-3 py-2 bg-gray-800 text-white text-xs font-semibold rounded-lg hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
-                      {datasetUploading && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                      업로드 후 선택
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <DirectorySlot
+              label="비교 데이터셋 경로"
+              placeholder="폴더 선택"
+              value={obsDatasetDir}
+              onChange={setObsDatasetDir}
+            />
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              운용 시점과 forecast step 기준으로 이 경로의 관측 파일을 매칭합니다.
+            </p>
+          </div>
+
+          <div>
+            <DirectorySlot
+              label="출력 경로"
+              placeholder="출력 폴더"
+              value={outputDir}
+              onChange={setOutputDir}
+            />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-gray-600">메모</label>
             <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={3}
-              placeholder="학습 데이터 출처, 특이사항 등"
+              placeholder="메모 입력"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
           </div>
         </div>
@@ -403,10 +508,10 @@ function AddTcModal({
         <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">{error && <p className="text-xs text-red-500">{error}</p>}</div>
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0">취소</button>
-          <button onClick={handleSubmit} disabled={submitting}
+          <button onClick={handleSubmit} disabled={submitting || !productionModel}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 flex-shrink-0">
             {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-            TC 추가
+            새 실험 실행
           </button>
         </div>
       </div>
@@ -430,7 +535,6 @@ export default function ExperimentDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [showModal,  setShowModal]  = useState(false);
   const [models,              setModels]              = useState<ModelVersion[]>([]);
-  const [observationDatasets, setObservationDatasets] = useState<ObservationDataset[]>([]);
   const [selectedId,          setSelectedId]          = useState<number | null>(null);
   const [logs,                setLogs]                = useState<string[]>([]);
   const [logsLoading,         setLogsLoading]         = useState(false);
@@ -482,14 +586,11 @@ export default function ExperimentDetailPage() {
     return () => clearInterval(id);
   }, [realJobs, userTcIds]);
 
-  // 모델 목록 + 정답 데이터셋 로드
+  // 모델 목록 로드
   useEffect(() => {
     getModels()
-      .then(data => setModels(data.length ? data : FALLBACK_MODELS))
-      .catch(() => setModels(FALLBACK_MODELS));
-    getObservationDatasets()
-      .then(setObservationDatasets)
-      .catch(() => setObservationDatasets([]));
+      .then(data => setModels(applyStoredModelStatuses(data.length ? data : FALLBACK_MODELS)))
+      .catch(() => setModels(applyStoredModelStatuses(FALLBACK_MODELS)));
   }, []);
 
   // 실행 중 TC 로그
@@ -523,15 +624,24 @@ export default function ExperimentDetailPage() {
     files: FormFiles,
     modelVersion: string,
     memo: string,
-    observationDatasetId: number | null,
+    observationDatasetDir: string | null,
+    outputDir: string | null,
   ) => {
     const runDt = getCompactDtFromFilename(files.t3.name) ?? getNowDt();
+    const requester = getUsername() ?? 'admin';
+    const selectedModel = models.find(model => model.version === modelVersion);
+    const architecture = selectedModel?.metrics?.architecture === 'multi'
+      ? 'multi'
+      : selectedModel?.metrics?.architecture === 'single'
+        ? 'single'
+        : null;
     const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
       fs.file
         ? { filename: fs.name, timestamp: calculateTimestamp(runDt, offset), file_data: await fileToBase64(fs.file) }
         : { filename: null, timestamp: null, file_data: null };
 
     const result = await createExperimentJob({
+      user_name:               requester,
       run_datetime:           toApiRunDatetime(runDt),
       model_version:          modelVersion,
       forecast_steps:         ALL_STEPS,
@@ -539,7 +649,9 @@ export default function ExperimentDetailPage() {
       experiment_name:        null,
       experiment_tags:        null,
       experiment_memo:        memo || null,
-      observation_dataset_id: observationDatasetId,
+      observation_dataset_id: null,
+      observation_dataset_dir: observationDatasetDir,
+      output_dir:             outputDir,
       input_files: {
         file_t0: await makeFile(files.t0, -30),
         file_t1: await makeFile(files.t1, -20),
@@ -553,14 +665,11 @@ export default function ExperimentDetailPage() {
     if (result?.job_id) {
       addTcToExpMap(expId, result.job_id);
       if (memo) saveTcMemo(result.job_id, memo);
+      saveTcModelMeta(result.job_id, { modelVersion, architecture, requester });
       refreshTcIds();
     }
     fetchJobs();
   };
-
-  const handleDatasetUploaded = useCallback((ds: ObservationDataset) => {
-    setObservationDatasets(prev => [ds, ...prev.filter(d => d.id !== ds.id)]);
-  }, []);
 
   // ─── 렌더 ─────────────────────────────────────────────────────────────────
 
@@ -591,6 +700,7 @@ export default function ExperimentDetailPage() {
   }
 
   const totalTc = tcJobs.length;
+  const operatingModels = models.filter(model => (model.status ?? '').toUpperCase() === 'SELECTED');
 
   // 완료 TC별 요약 지표(실데이터 없으면 샘플) + 버전 비교용 최고값 계산
   const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
@@ -615,9 +725,7 @@ export default function ExperimentDetailPage() {
         <AddTcModal
           onClose={() => setShowModal(false)}
           onSubmit={handleSubmitTc}
-          models={models}
-          observationDatasets={observationDatasets}
-          onDatasetUploaded={handleDatasetUploaded}
+          models={operatingModels}
         />
       )}
 
@@ -646,7 +754,7 @@ export default function ExperimentDetailPage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
-            TC 추가
+            새 실험 실행
           </button>
         </div>
       </div>
@@ -656,7 +764,6 @@ export default function ExperimentDetailPage() {
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-700">테스트 케이스 (TC) 목록</span>
-            <span className="text-[11px] text-gray-400">· 지표 최고값 <span className="text-emerald-600 font-semibold">강조</span></span>
             {anySample && (
               <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">샘플 지표</span>
             )}
@@ -680,7 +787,15 @@ export default function ExperimentDetailPage() {
               const isSelected = job.job_id === selectedId;
               const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
               const result     = resultMap[job.job_id];
-              const modelVer   = result?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+              const storedMeta = loadTcModelMeta(job.job_id);
+              const modelVer   = result?.params.model_version ?? storedMeta?.modelVersion ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+              const registryModel = models.find(model => model.version === modelVer);
+              const registryArch = registryModel?.metrics?.architecture;
+              const displayMode = storedMeta?.architecture
+                ?? (registryArch === 'multi' || registryArch === 'single' ? registryArch : null)
+                ?? job.mode;
+              const displayRequester = storedMeta?.requester
+                ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? 'admin');
               const sum        = tcSummary[job.job_id];
               const fmtCell = (v: number | null | undefined, isBest: boolean) =>
                 v == null
@@ -706,7 +821,7 @@ export default function ExperimentDetailPage() {
                       ) : (
                         <span className="font-semibold text-gray-800 text-sm leading-tight">{job.experiment_name}</span>
                       )}
-                      <p className="text-[11px] text-gray-400 mt-0.5">#{job.job_id} · {job.mode}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">#{job.job_id} · {displayMode}</p>
                     </div>
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
@@ -740,8 +855,8 @@ export default function ExperimentDetailPage() {
                         { label: '시작일',    value: fmtDt(job.started_at) },
                         { label: '완료일',    value: fmtDt(job.finished_at) },
                         { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
-                        { label: '요청자',    value: job.user_name },
-                        { label: '모드',      value: job.mode },
+                        { label: '요청자',    value: displayRequester },
+                        { label: '모드',      value: displayMode },
                         ...(job.run_id != null ? [{ label: 'Run ID', value: `#${job.run_id}` }] : []),
                       ].map(row => (
                         <div key={row.label}>
@@ -802,7 +917,7 @@ export default function ExperimentDetailPage() {
 
         {tcJobs.length === 0 && !loading && (
           <div className="py-16 text-center text-gray-400 text-sm">
-            {totalTc === 0 ? 'TC가 없습니다. TC 추가 버튼으로 실험을 시작하세요.' : '로드 중...'}
+            {totalTc === 0 ? '실험 이력이 없습니다. 새 실험 실행 버튼으로 검증을 시작하세요.' : '로드 중...'}
           </div>
         )}
 
