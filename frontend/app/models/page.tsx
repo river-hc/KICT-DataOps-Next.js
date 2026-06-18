@@ -3,18 +3,35 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getModels, type ModelVersion } from '@/lib/api';
-import { getModelAliases, loadHidden } from '@/lib/modelStore';
+import { getModels, getTrainings, type ModelVersion } from '@/lib/api';
+import {
+  applyStoredModelStatuses,
+  loadHidden,
+  mergePendingTrainingModels,
+  updatePendingTrainingStatuses,
+} from '@/lib/modelStore';
 import { MOCK_MODELS } from '@/lib/modelMock';
+import { formatModelDateTime } from '@/lib/modelRegistry';
 
 // ─── 모델 그룹 요약 ──────────────────────────────────────────────────────────
 
 interface ModelGroup {
   name: string;
   versionCount: number;
-  latest: ModelVersion;
-  aliases: { alias: string; version: string }[];
+  selectedVersion: string | null;   // 운영(SELECTED) 버전
+  trainingStatus: string | null;
   latestRegistered: string | null;
+}
+
+function isTrainingStatus(status: string | null | undefined): boolean {
+  return ['QUEUED', 'RUNNING'].includes((status ?? '').toUpperCase());
+}
+
+function trainingStatusLabel(status: string | null): string {
+  const value = (status ?? '').toUpperCase();
+  if (value === 'QUEUED') return '대기 중';
+  if (value === 'RUNNING') return '학습 중';
+  return '대기 작업 없음';
 }
 
 function buildGroups(models: ModelVersion[]): ModelGroup[] {
@@ -26,18 +43,15 @@ function buildGroups(models: ModelVersion[]): ModelGroup[] {
   }
   return Array.from(map.entries()).map(([name, arr]) => {
     const sorted = [...arr].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
-    const byId = new Map(sorted.map(m => [m.id, m.version]));
-    const aliasMap = getModelAliases(name); // { alias: versionId }
-    const aliases = Object.entries(aliasMap)
-      .filter(([, vid]) => byId.has(vid))
-      .map(([alias, vid]) => ({ alias, version: byId.get(vid)! }))
-      .sort((a, b) => a.alias.localeCompare(b.alias));
+    const registered = sorted.filter(m => !isTrainingStatus(m.status));
+    const selected = registered.find(m => (m.status ?? '').toUpperCase() === 'SELECTED');
+    const activeTraining = sorted.find(m => isTrainingStatus(m.status));
     return {
       name,
-      versionCount: sorted.length,
-      latest: sorted[0],
-      aliases,
-      latestRegistered: sorted[0]?.created_at ?? null,
+      versionCount: registered.length,
+      selectedVersion: selected?.version ?? null,
+      trainingStatus: activeTraining?.status ?? null,
+      latestRegistered: registered[0]?.created_at ?? sorted[0]?.created_at ?? null,
     };
   });
 }
@@ -51,9 +65,13 @@ export default function Models() {
   const [hidden, setHidden]   = useState<number[]>([]);
 
   const refresh = useCallback(() => {
-    getModels()
-      .then(data => setModels(data.length ? data : MOCK_MODELS))
-      .catch(() => setModels(MOCK_MODELS))
+    Promise.allSettled([getModels(), getTrainings()])
+      .then(([modelResult, trainingResult]) => {
+        const data = modelResult.status === 'fulfilled' ? modelResult.value : [];
+        if (trainingResult.status === 'fulfilled') updatePendingTrainingStatuses(trainingResult.value);
+        const base = applyStoredModelStatuses(data.length ? data : MOCK_MODELS);
+        setModels(mergePendingTrainingModels(base));
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -75,66 +93,76 @@ export default function Models() {
 
   return (
     <Layout>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <span className="text-sm font-semibold text-gray-700">등록된 모델 ({groups.length})</span>
+      <div className="space-y-3">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-700">학습 산출 모델</p>
+              <p className="text-xs text-gray-500 mt-0.5">학습 완료 후 등록된 모델을 운영 후보로 관리합니다.</p>
+            </div>
+            <button
+              onClick={() => router.push('/trainings')}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.25} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+              새 모델 학습
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['모델명', '등록 버전', '운영 버전', '학습 상태', '최근 등록'].map(h => (
+                    <th key={h} className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map(g => (
+                  <tr
+                    key={g.name}
+                    onClick={() => router.push(`/models/${encodeURIComponent(g.name)}`)}
+                    className="cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-[18px] h-[18px] text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
+                        </svg>
+                        <span className="font-semibold text-blue-600">{g.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-700">{g.versionCount}개</td>
+                    <td className="px-3 py-2.5">
+                      {g.selectedVersion ? (
+                        <span className="font-mono text-xs text-gray-500">{g.selectedVersion}</span>
+                      ) : (
+                        <span className="text-xs text-gray-300">지정 없음</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">{trainingStatusLabel(g.trainingStatus)}</td>
+                    <td className="px-3 py-2.5 text-gray-400 text-xs whitespace-nowrap">
+                      {formatModelDateTime(g.latestRegistered)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {groups.length === 0 && (
+            <div className="py-16 text-center text-gray-400 text-sm">
+              아직 레지스트리에 등록된 학습 완료 모델이 없습니다.
+            </div>
+          )}
         </div>
-
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              {['모델명', '버전 수', '최신 버전', '별칭(Aliases)', '최근 등록일'].map(h => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map(g => (
-              <tr
-                key={g.name}
-                onClick={() => router.push(`/models/${encodeURIComponent(g.name)}`)}
-                className="cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors"
-              >
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <svg className="w-4.5 h-4.5 text-gray-400 flex-shrink-0" width="18" height="18" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
-                    </svg>
-                    <span className="font-semibold text-blue-600">{g.name}</span>
-                  </div>
-                </td>
-                <td className="px-5 py-3 text-gray-700">{g.versionCount}개</td>
-                <td className="px-5 py-3">
-                  <span className="font-mono text-xs font-semibold text-gray-700">{g.latest?.version ?? '-'}</span>
-                </td>
-                <td className="px-5 py-3">
-                  {g.aliases.length > 0 ? (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {g.aliases.map(({ alias, version }) => (
-                        <span key={alias} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-                          @{alias}
-                          <span className="font-mono text-blue-400">{version}</span>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-gray-300">없음</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
-                  {g.latestRegistered?.slice(0, 10) ?? '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {groups.length === 0 && (
-          <div className="py-16 text-center text-gray-400 text-sm">등록된 모델이 없습니다.</div>
-        )}
       </div>
     </Layout>
   );

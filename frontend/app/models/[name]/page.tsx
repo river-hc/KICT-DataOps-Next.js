@@ -3,304 +3,80 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getModels, registerModel, type ModelVersion } from '@/lib/api';
+import { getModels, getTrainings, selectModel, archiveModel, type ModelVersion } from '@/lib/api';
 import {
-  getVersionAliases, getAliasTarget, setAlias, removeAlias,
-  loadHidden, hideModel, getModelDesc, setModelDesc,
-  ALIAS_SUGGESTIONS,
+  applyStoredModelStatuses,
+  loadHidden,
+  hideModel,
+  getModelDesc,
+  setModelDesc,
+  saveModelStatus,
+  mergePendingTrainingModels,
+  updatePendingTrainingStatuses,
 } from '@/lib/modelStore';
 import { MOCK_MODELS } from '@/lib/modelMock';
+import {
+  formatModelDateTime,
+  getArchitecture,
+  getTrainingMeta,
+  type ModelTrainingMeta,
+} from '@/lib/modelRegistry';
 
-// ─── Register modal ───────────────────────────────────────────────────────────
+type ModelStatus = 'CREATED' | 'SELECTED' | 'ARCHIVED' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
 
-// 아키텍처별 허용 확장자 — Single: 단일 모델 파일 / Multi: tflite 18개 또는 ZIP
-const ACCEPT_BY_ARCH = {
-  single: '.h5,.pt',
-  multi:  '.tflite,.zip',
-} as const;
-
-function matchesArch(fileName: string, arch: 'single' | 'multi'): boolean {
-  const lower = fileName.toLowerCase();
-  return ACCEPT_BY_ARCH[arch].split(',').some(ext => lower.endsWith(ext));
+function normalizeStatus(s: string | null | undefined): ModelStatus {
+  const v = (s ?? '').toUpperCase();
+  if (v === 'SELECTED') return 'SELECTED';
+  if (v === 'ARCHIVED') return 'ARCHIVED';
+  if (v === 'QUEUED') return 'QUEUED';
+  if (v === 'RUNNING') return 'RUNNING';
+  if (v === 'COMPLETED') return 'COMPLETED';
+  if (v === 'FAILED') return 'FAILED';
+  if (v === 'CANCELED') return 'CANCELED';
+  return 'CREATED';
 }
 
-// 기존 목록의 Ver.N 최대값 +1을 기본 버전 레이블로 제안 (패턴 불일치 시 빈 값)
-function suggestNextVersion(models: ModelVersion[]): string {
-  const nums = models
-    .map(m => /^Ver\.(\d+)$/.exec(m.version ?? ''))
-    .filter((m): m is RegExpExecArray => m !== null)
-    .map(m => Number(m[1]));
-  return nums.length ? `Ver.${Math.max(...nums) + 1}` : '';
-}
+const STATUS_META: Record<ModelStatus, { label: string; cls: string }> = {
+  CREATED:  { label: '등록됨', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  SELECTED: { label: '운영',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  ARCHIVED: { label: '보관',   cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+  QUEUED:   { label: '대기',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  RUNNING:  { label: '학습 중', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  COMPLETED:{ label: '완료',   cls: 'bg-sky-50 text-sky-700 border-sky-200' },
+  FAILED:   { label: '실패',   cls: 'bg-red-50 text-red-700 border-red-200' },
+  CANCELED: { label: '취소',   cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+};
 
-function RegisterModal({
-  onClose, onRegistered, models,
-}: {
-  onClose: () => void;
-  onRegistered: () => void;
-  models: ModelVersion[];
-}) {
-  const [versionLabel, setVersionLabel] = useState(() => suggestNextVersion(models));
-  const [architecture, setArchitecture] = useState<'multi' | 'single'>('multi');
-  const [file, setFile] = useState<File | null>(null);
-  const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fileNotice, setFileNotice] = useState<string | null>(null);
-
-  const handleArchChange = (arch: 'multi' | 'single') => {
-    setArchitecture(arch);
-    if (file && !matchesArch(file.name, arch)) {
-      setFile(null);
-      setFileNotice('아키텍처에 맞지 않는 파일이라 선택이 해제되었습니다.');
-    }
-  };
-
-  const handleFileChange = (f: File | null) => {
-    if (f && !matchesArch(f.name, architecture)) {
-      setFile(null);
-      setFileNotice(
-        architecture === 'single'
-          ? 'Single 아키텍처는 .h5 / .pt 파일만 등록할 수 있습니다.'
-          : 'Multi 아키텍처는 .tflite / .zip 파일만 등록할 수 있습니다.'
-      );
-      return;
-    }
-    setFile(f);
-    setFileNotice(null);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return;
-
-    const label = versionLabel.trim();
-    if (models.some(m => m.version === label)) {
-      setError(`이미 존재하는 버전입니다: ${label}`);
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      await registerModel({
-        versionLabel: label,
-        architecture,
-        modelFile: file,
-        memo: note.trim() || undefined,
-      });
-      onRegistered();
-      onClose();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : '모델 등록에 실패했습니다.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+function StatusBadge({ status }: { status: ModelStatus }) {
+  const m = STATUS_META[status];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
-
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-900">버전 등록</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-              버전 레이블
-            </label>
-            <input
-              type="text"
-              value={versionLabel}
-              onChange={e => setVersionLabel(e.target.value)}
-              placeholder="예: Ver.4, 2025-Q4"
-              required
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              아키텍처
-            </label>
-            <div className="space-y-2">
-              {([
-                { value: 'multi'  as const, label: 'Multi',  desc: '선행시간별 독립 모델 — 18개 파일은 ZIP으로 묶어 업로드' },
-                { value: 'single' as const, label: 'Single', desc: '단일 모델에서 18개 시점 동시 예측' },
-              ]).map(opt => (
-                <label
-                  key={opt.value}
-                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition ${
-                    architecture === opt.value
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="architecture"
-                    value={opt.value}
-                    checked={architecture === opt.value}
-                    onChange={() => handleArchChange(opt.value)}
-                    className="mt-0.5 accent-blue-600"
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{opt.label}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-              모델 파일
-            </label>
-            <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer transition ${
-              file ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'
-            }`}>
-              <input
-                type="file"
-                accept={ACCEPT_BY_ARCH[architecture]}
-                className="hidden"
-                onChange={e => handleFileChange(e.target.files?.[0] ?? null)}
-              />
-              {file ? (
-                <div className="text-center px-4">
-                  <p className="text-sm font-medium text-blue-700 truncate max-w-xs">{file.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <svg className="w-6 h-6 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                  </svg>
-                  <p className="text-xs text-gray-400">
-                    {architecture === 'single' ? '.h5 · .pt' : '.tflite · .zip (18개 모델 묶음)'}
-                  </p>
-                </div>
-              )}
-            </label>
-            {fileNotice && (
-              <p className="text-xs text-amber-600 mt-1.5">{fileNotice}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-              메모 <span className="normal-case font-normal text-gray-400">(선택)</span>
-            </label>
-            <textarea
-              value={note}
-              onChange={e => setNote(e.target.value)}
-              rows={3}
-              placeholder="학습 데이터 출처, 전이학습 기반 버전 등"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <div className="flex-1 min-w-0">
-              {error && <p className="text-xs text-red-500">{error}</p>}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition flex-shrink-0"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={!versionLabel.trim() || !file || submitting}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0"
-            >
-              {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-              등록
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <span className={`inline-flex w-14 items-center justify-center px-1.5 py-0.5 rounded text-xs font-semibold border text-center ${m.cls}`}>
+      {m.label}
+    </span>
   );
 }
 
-// ─── 별칭(Alias) 셀 ─────────────────────────────────────────────────────────
-
-function AliasCell({
-  aliases, onAdd, onRemove,
+function StatusActions({
+  status, onSelect, onArchive,
 }: {
-  aliases: string[]; onAdd: (alias: string) => void; onRemove: (alias: string) => void;
+  status: ModelStatus; onSelect: () => void; onArchive: () => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [val, setVal]       = useState('');
-
-  const submit = (raw?: string) => {
-    const a = (raw ?? val).trim();
-    if (!a) return;
-    onAdd(a);
-    setVal('');
-    setAdding(false);
-  };
-
-  const remaining = ALIAS_SUGGESTIONS.filter(s => !aliases.includes(s));
-
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      {aliases.map(a => (
-        <span key={a} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
-          @{a}
-          <button
-            onClick={e => { e.stopPropagation(); onRemove(a); }}
-            className="text-blue-300 hover:text-blue-600 transition"
-            title="별칭 제거"
-          >
-            <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-              <path d="M3 3l10 10M13 3L3 13" />
-            </svg>
-          </button>
-        </span>
-      ))}
-
-      {adding ? (
-        <span className="inline-flex items-center gap-1">
-          <input
-            value={val}
-            autoFocus
-            onChange={e => setVal(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setAdding(false); }}
-            placeholder="별칭"
-            className="w-24 px-2 py-0.5 text-xs border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          {remaining.slice(0, 2).map(s => (
-            <button
-              key={s}
-              onClick={() => submit(s)}
-              className="px-1.5 py-0.5 text-[11px] text-gray-500 border border-gray-200 rounded hover:bg-gray-50 whitespace-nowrap"
-            >
-              {s}
-            </button>
-          ))}
-          <button onClick={() => submit()} className="px-1.5 py-0.5 text-[11px] font-semibold text-white bg-blue-600 rounded hover:bg-blue-700">추가</button>
-        </span>
-      ) : (
+      {status === 'CREATED' && (
         <button
-          onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-gray-400 border border-dashed border-gray-300 rounded-full hover:text-gray-600 hover:border-gray-400 transition"
-          title="별칭 추가"
+          onClick={e => { e.stopPropagation(); onSelect(); }}
+          className="px-2 py-1 text-xs font-semibold border rounded-md transition whitespace-nowrap bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50"
         >
-          <svg viewBox="0 0 16 16" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
+          운영 지정
+        </button>
+      )}
+      {(status === 'CREATED' || status === 'SELECTED') && (
+        <button
+          onClick={e => { e.stopPropagation(); onArchive(); }}
+          className="px-2 py-1 text-xs font-semibold border rounded-md transition whitespace-nowrap bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+        >
+          보관
         </button>
       )}
     </div>
@@ -312,7 +88,7 @@ function DeleteButton({ onDelete }: { onDelete: () => void }) {
     <button
       onClick={e => { e.stopPropagation(); onDelete(); }}
       className="p-1 text-red-400 border border-red-100 rounded-md hover:bg-red-50 transition"
-      title="삭제"
+      title="목록에서 숨김"
     >
       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -320,8 +96,6 @@ function DeleteButton({ onDelete }: { onDelete: () => void }) {
     </button>
   );
 }
-
-// ─── 모델 설명 (인라인 편집) ─────────────────────────────────────────────────
 
 function ModelDescription({ modelName }: { modelName: string }) {
   const [editing, setEditing] = useState(false);
@@ -340,7 +114,7 @@ function ModelDescription({ modelName }: { modelName: string }) {
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-          placeholder="모델 설명 입력"
+          placeholder="설명"
           autoFocus
           className="flex-1 max-w-md px-2 py-1 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -362,65 +136,82 @@ function ModelDescription({ modelName }: { modelName: string }) {
   );
 }
 
-// ─── 버전 목록 테이블 ─────────────────────────────────────────────────────────
+function SummaryCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 shadow-sm">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-base font-bold text-gray-900 mt-0.5 break-all">{value}</p>
+    </div>
+  );
+}
+
+function DetailField({ label, value, code = false }: { label: string; value: string; code?: boolean }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-1">{label}</p>
+      <div className={`min-h-10 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 break-all ${code ? 'font-mono' : ''}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
 
 function VersionTable({
-  modelName, versions, onAddAlias, onRemoveAlias, onDelete,
+  versions, activeId, onSelectVersion, onSelect, onArchive, onDelete,
 }: {
-  modelName: string;
   versions: ModelVersion[];
-  onAddAlias: (id: number, alias: string) => void;
-  onRemoveAlias: (alias: string) => void;
+  activeId: number | null;
+  onSelectVersion: (id: number) => void;
+  onSelect: (id: number) => void;
+  onArchive: (id: number) => void;
   onDelete: (id: number) => void;
 }) {
+  const headers = [
+    { label: 'Version', cls: 'w-24' },
+    { label: '상태', cls: 'w-20 text-center' },
+    { label: '방식', cls: 'w-20' },
+    { label: '완료', cls: 'w-28' },
+    { label: '시간', cls: 'w-24' },
+    { label: 'Actions', cls: 'w-36' },
+  ];
+
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-100">
-            {['Version', 'Aliases', '아키텍처', '파일 형식', '등록일', '메모', 'Actions'].map(h => (
-              <th key={h} className="text-left px-5 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                {h}
+      <table className="w-full min-w-[620px] text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            {headers.map(h => (
+              <th key={h.label} className={`text-left px-2 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap ${h.cls}`}>
+                {h.label}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {versions.map(m => {
-            const arch    = m.metrics?.architecture as string | undefined;
-            const fmt     = m.metrics?.file_format  as string | undefined;
-            const cnt     = m.metrics?.file_count   as number | undefined;
-            const note    = m.metrics?.note         as string | undefined;
-            const aliases = getVersionAliases(modelName, m.id);
+          {versions.map(model => {
+            const status = normalizeStatus(model.status);
+            const meta = getTrainingMeta(model);
 
             return (
-              <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50/60 transition-colors">
-                <td className="px-5 py-3">
-                  <span className="font-mono text-sm font-semibold text-blue-600">{m.version}</span>
+              <tr
+                key={model.id}
+                onClick={() => onSelectVersion(model.id)}
+                className={`cursor-pointer border-b border-gray-50 transition-colors ${
+                  activeId === model.id ? 'bg-blue-50/60' : 'hover:bg-gray-50/70'
+                }`}
+              >
+                <td className="px-2 py-2.5">
+                  <span className="font-mono text-sm font-semibold text-blue-600">{model.version}</span>
                 </td>
-                <td className="px-5 py-3">
-                  <AliasCell
-                    aliases={aliases}
-                    onAdd={a => onAddAlias(m.id, a)}
-                    onRemove={onRemoveAlias}
-                  />
-                </td>
-                <td className="px-5 py-3 text-xs text-gray-600 whitespace-nowrap">
-                  {arch === 'single' ? 'Single' : arch === 'multi' ? 'Multi' : '-'}
-                </td>
-                <td className="px-5 py-3 whitespace-nowrap">
-                  {fmt ? (
-                    <span className="text-xs font-mono bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded">
-                      .{fmt}{cnt && cnt > 1 ? ` × ${cnt}` : ''}
-                    </span>
-                  ) : <span className="text-gray-400">-</span>}
-                </td>
-                <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">{m.created_at?.slice(0, 10) ?? '-'}</td>
-                <td className="px-5 py-3 text-xs text-gray-600 max-w-[220px]">
-                  <span className="line-clamp-1">{note || '-'}</span>
-                </td>
-                <td className="px-5 py-3">
-                  <DeleteButton onDelete={() => onDelete(m.id)} />
+                <td className="px-2 py-2.5 text-center"><StatusBadge status={status} /></td>
+                <td className="px-2 py-2.5 text-xs text-gray-600 whitespace-nowrap">{meta.mode}</td>
+                <td className="px-2 py-2.5 text-xs text-gray-500 whitespace-nowrap">{formatModelDateTime(meta.finishedAt)}</td>
+                <td className="px-2 py-2.5 text-gray-700 whitespace-nowrap">{meta.durationLabel}</td>
+                <td className="px-2 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <StatusActions status={status} onSelect={() => onSelect(model.id)} onArchive={() => onArchive(model.id)} />
+                    <DeleteButton onDelete={() => onDelete(model.id)} />
+                  </div>
                 </td>
               </tr>
             );
@@ -431,51 +222,66 @@ function VersionTable({
   );
 }
 
-// ─── Main — 모델 상세(버전 리스트) ───────────────────────────────────────────
+function VersionDetailPanel({ model, meta }: { model: ModelVersion; meta: ModelTrainingMeta }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-bold text-gray-800">선택 버전 학습 정보</p>
+          <span className="font-mono text-xs text-blue-600">{model.version}</span>
+          <StatusBadge status={normalizeStatus(model.status)} />
+        </div>
+      </div>
+
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-3">
+        <DetailField label="생성 Job" value={meta.jobId} code />
+        <DetailField label="방식" value={getArchitecture(model)} />
+        <DetailField label="학습 시작" value={formatModelDateTime(meta.startedAt)} />
+        <DetailField label="학습 완료" value={formatModelDateTime(meta.finishedAt)} />
+        <DetailField label="학습 시간" value={meta.durationLabel} />
+        <DetailField label="주요 성능" value={meta.scoreLabel} />
+        <DetailField label="입력 데이터 폴더" value={meta.trainDataset} code />
+        <DetailField label="모델 artifact" value={meta.artifactPath} code />
+      </div>
+    </div>
+  );
+}
 
 export default function ModelDetail() {
   const params = useParams();
   const router = useRouter();
   const modelName = decodeURIComponent(Array.isArray(params.name) ? params.name[0] : (params.name ?? ''));
 
-  const [models, setModels]       = useState<ModelVersion[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [hidden, setHidden]       = useState<number[]>([]);
-  const [tick, setTick]           = useState(0);
+  const [models, setModels] = useState<ModelVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hidden, setHidden] = useState<number[]>([]);
+  const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
 
   const refresh = useCallback(() => {
-    getModels()
-      .then(data => setModels(data.length ? data : MOCK_MODELS))
-      .catch(() => setModels(MOCK_MODELS))
+    Promise.allSettled([getModels(), getTrainings()])
+      .then(([modelResult, trainingResult]) => {
+        const data = modelResult.status === 'fulfilled' ? modelResult.value : [];
+        if (trainingResult.status === 'fulfilled') updatePendingTrainingStatuses(trainingResult.value);
+        const base = applyStoredModelStatuses(data.length ? data : MOCK_MODELS);
+        setModels(mergePendingTrainingModels(base));
+      })
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => { setHidden(loadHidden()); }, []);
 
-  // 별칭 부여 — 별칭은 모델당 유일. 이미 다른 버전에 있으면 이동 확인
-  const handleAddAlias = (id: number, alias: string) => {
-    const target = getAliasTarget(modelName, alias);
-    if (target != null && target !== id) {
-      const from = models.find(m => m.id === target);
-      const ok = window.confirm(
-        `별칭 @${alias}이(가) 이미 ${from?.version ?? `#${target}`} 버전에 지정되어 있습니다.\n` +
-        `이 버전으로 옮길까요? (기존 버전에서는 제거됩니다)`
-      );
-      if (!ok) return;
-    }
-    setAlias(modelName, alias, id);
-    setTick(t => t + 1);
+  const applyStatus = (id: number, status: 'SELECTED' | 'ARCHIVED') => {
+    setModels(prev => saveModelStatus(prev, id, status));
+    const call = status === 'SELECTED' ? selectModel(id) : archiveModel(id);
+    call.catch(() => { /* 프로토타입: 백엔드 미반영 시에도 로컬 상태 유지 */ });
   };
 
-  const handleRemoveAlias = (alias: string) => {
-    removeAlias(modelName, alias);
-    setTick(t => t + 1);
-  };
+  const handleSelect  = (id: number) => applyStatus(id, 'SELECTED');
+  const handleArchive = (id: number) => applyStatus(id, 'ARCHIVED');
 
   const handleDelete = (id: number) => {
-    if (!window.confirm('이 모델 버전을 목록에서 삭제하시겠습니까?')) return;
+    if (!window.confirm('이 모델 버전을 목록에서 숨기시겠습니까?')) return;
     hideModel(id);
     setHidden(prev => [...prev, id]);
   };
@@ -495,19 +301,62 @@ export default function ModelDetail() {
     .filter(m => m.model_name === modelName && !hidden.includes(m.id))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
   const latest = versions[0];
-  void tick; // getStage가 localStorage를 읽으므로 tick 변경으로 리렌더만 유도
+  const registeredVersions = versions.filter(m => !['QUEUED', 'RUNNING'].includes(normalizeStatus(m.status)));
+  const latestRegistered = registeredVersions[0] ?? latest;
+  const selected = registeredVersions.find(m => normalizeStatus(m.status) === 'SELECTED');
+  const activeVersion = versions.find(m => m.id === activeVersionId) ?? null;
+  const activeMeta = activeVersion ? getTrainingMeta(activeVersion) : null;
+
+  if (activeVersion && activeMeta) {
+    return (
+      <Layout>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <button
+            onClick={() => setActiveVersionId(null)}
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors"
+          >
+            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 4l-5 4 5 4" />
+            </svg>
+            버전 목록
+          </button>
+          <button
+            onClick={() => router.push('/trainings')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm flex-shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.25} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+            </svg>
+            학습 페이지로 이동
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-lg font-bold text-gray-900">{modelName}</h2>
+                <span className="font-mono text-xs text-blue-600">{activeVersion.version}</span>
+                <StatusBadge status={normalizeStatus(activeVersion.status)} />
+              </div>
+            </div>
+            <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-2.5">
+              <SummaryCard label="생성 Job" value={activeMeta.jobId} />
+              <SummaryCard label="방식" value={getArchitecture(activeVersion)} />
+              <SummaryCard label="학습 시간" value={activeMeta.durationLabel} />
+              <SummaryCard label="주요 성능" value={activeMeta.scoreLabel} />
+            </div>
+          </div>
+
+          <VersionDetailPanel model={activeVersion} meta={activeMeta} />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
-      {showModal && (
-        <RegisterModal
-          models={versions}
-          onClose={() => setShowModal(false)}
-          onRegistered={refresh}
-        />
-      )}
-
-      {/* 브레드크럼 + 등록 버튼 */}
       <div className="flex items-start justify-between gap-4 mb-4">
         <button
           onClick={() => router.push('/models')}
@@ -519,50 +368,57 @@ export default function ModelDetail() {
           모델 목록
         </button>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => router.push('/trainings')}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm flex-shrink-0"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.25} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2 17l10 5 10-5M2 12l10 5 10-5" />
           </svg>
-          버전 등록
+          학습 페이지로 이동
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* 모델 헤더 */}
-        <div className="px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2.5">
-            <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
-            </svg>
-            <h2 className="text-lg font-bold text-gray-900">{modelName}</h2>
-            {latest && (
-              <span className="text-xs text-gray-400">
-                최신 <span className="font-mono font-semibold text-gray-500">{latest.version}</span>
-              </span>
-            )}
+      <div className="space-y-3">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
+              </svg>
+              <h2 className="text-lg font-bold text-gray-900">{modelName}</h2>
+              {latestRegistered && <span className="text-xs text-gray-400">최신 <span className="font-mono font-semibold text-gray-500">{latestRegistered.version}</span></span>}
+              {selected && <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-0.5">운영 {selected.version}</span>}
+            </div>
+            <ModelDescription modelName={modelName} />
           </div>
-          <ModelDescription modelName={modelName} />
+
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <SummaryCard label="등록 버전" value={`${registeredVersions.length}개`} />
+            <SummaryCard label="운영 버전" value={selected?.version ?? '지정 없음'} />
+            <SummaryCard label="최근 학습 시간" value={latestRegistered ? getTrainingMeta(latestRegistered).durationLabel : '-'} />
+          </div>
         </div>
 
-        {/* 버전 목록 */}
-        <div className="px-5 pt-4 pb-1">
-          <p className="text-sm font-semibold text-gray-700">버전 목록 ({versions.length})</p>
-        </div>
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <p className="text-sm font-semibold text-gray-700">버전 목록 ({versions.length})</p>
+          </div>
 
-        {versions.length === 0 ? (
-          <div className="py-16 text-center text-gray-400 text-sm">등록된 버전이 없습니다.</div>
-        ) : (
-          <VersionTable
-            modelName={modelName}
-            versions={versions}
-            onAddAlias={handleAddAlias}
-            onRemoveAlias={handleRemoveAlias}
-            onDelete={handleDelete}
-          />
-        )}
+          {versions.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-sm">등록된 버전이 없습니다.</div>
+          ) : (
+            <VersionTable
+              versions={versions}
+              activeId={null}
+              onSelectVersion={setActiveVersionId}
+              onSelect={handleSelect}
+              onArchive={handleArchive}
+              onDelete={handleDelete}
+            />
+          )}
+        </div>
       </div>
     </Layout>
   );
