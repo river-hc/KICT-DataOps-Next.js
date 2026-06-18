@@ -60,4 +60,11 @@ API.md
 request.md
 request_model.md
 
+# Backend handoff/request docs
+BACKEND_API_LIST_DESIGN.md
+BACKEND_API_REQUESTS.json
+BACKEND_HANDOFF_SUMMARY.md
+BACKEND_INPUT_PARAMS_REQUEST.jsonc
+BACKEND_REQUIRED_CHANGES.md
+
 frontend/tsconfig.tsbuildinfo

@@ -232,6 +232,13 @@ export async function getTrainings(): Promise<TrainingJob[]> {
 export async function createTraining(body: {
   user_name?: string | null;
   experiment_name?: string | null;
+  model_name?: string | null;
+  mode?: 'single' | 'multi' | string | null;
+  train_dataset_dir?: string | null;
+  validation_dataset_dir?: string | null;
+  hyperparameters?: Record<string, unknown> | null;
+  evaluation_metrics?: string[] | null;
+  register_policy?: 'manual' | 'auto' | string | null;
   run_datetime?: string | null;
   model_version?: string | null;
   observation_dataset_id?: number | null;
@@ -274,6 +281,7 @@ export interface AscFileInput {
 }
 
 export interface ExperimentCreateRequest {
+  user_name?: string | null;
   run_datetime: string | null;
   input_files: {
     file_t0: AscFileInput;
@@ -288,6 +296,8 @@ export interface ExperimentCreateRequest {
   experiment_tags: string[] | null;
   experiment_memo: string | null;
   observation_dataset_id: number | null;
+  observation_dataset_dir?: string | null;
+  output_dir?: string | null;
 }
 
 export interface ObservationDataset {
