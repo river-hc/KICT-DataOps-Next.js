@@ -13,6 +13,7 @@ import {
   type TrainingJob,
   type SystemStatus,
 } from '@/lib/api';
+import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
 
@@ -250,22 +251,21 @@ function Dashboard() {
       .then(results => {
         const pts: ChartPoint[] = [];
         results.forEach((result, i) => {
-          if (!result?.metrics || Object.keys(result.metrics).length === 0) return;
           const job  = completed[i];
           const date = job.created_at ? new Date(job.created_at) : null;
           const label = date
             ? `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
             : '-';
-          const m = result.metrics as Record<string, number>;
+          const modelVersion = result?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? null;
+          const parsed = metricsOrSample(result?.metrics, job.job_id, modelVersion).summary;
           pts.push({
             label,
             name:   job.experiment_name,
-            sub:    result.params.model_version ?? '-',
+            sub:    modelVersion ?? '-',
             job_id: job.job_id,
-            mae:    m.mae  ?? 0,
-            rmse:   m.rmse ?? 0,
-            // 전체 단일 CSI(백엔드 변경 예정) 우선, 없으면 기존 csi_10 폴백
-            csi:    m.csi ?? m.csi_10 ?? 0,
+            mae:    parsed.mae ?? 0,
+            rmse:   parsed.rmse ?? 0,
+            csi:    parsed.csi ?? 0,
           });
         });
         setChartPts(pts);

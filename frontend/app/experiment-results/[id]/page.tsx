@@ -5,9 +5,9 @@ import { useParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
-import { getTraining, getTrainingResult, getTrainingLogs, type TrainingJob, type TrainingResult } from '@/lib/api';
-import { fmtDateTime, fmtDuration, fmtRunDatetime } from '@/lib/mockData';
-import { loadClientExperiments, loadExpTcMap, loadTcMemo } from '@/lib/experimentStore';
+import { getTraining, getTrainingResult, getTrainingLogs, getUsername, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { fmtDateTime, fmtDuration } from '@/lib/mockData';
+import { loadClientExperiments, loadExpTcMap, loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
 import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 지표 메타 ────────────────────────────────────────────────────────────────
@@ -50,6 +50,14 @@ function findParentExperimentId(jobId: number): number | null {
   return null;
 }
 
+function fmtRunDate(dt: string): string {
+  if (!dt) return '-';
+  const isoDate = dt.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (isoDate) return isoDate;
+  if (/^\d{8}/.test(dt)) return `${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}`;
+  return dt;
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 export default function ExperimentResultDetail() {
@@ -89,6 +97,9 @@ export default function ExperimentResultDetail() {
   }, [jobId]);
 
   const steps = detail?.params.forecast_steps ?? [];
+  const storedMeta = jobId != null ? loadTcModelMeta(jobId) : null;
+  const displayRequester = storedMeta?.requester
+    ?? (job?.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? 'admin');
 
   const goPrev = useCallback(() => {
     setIsPlaying(false);
@@ -322,7 +333,7 @@ export default function ExperimentResultDetail() {
                   <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">운용 시점</span>
                     <span className="text-xs font-medium text-gray-900 block break-words">
-                      {detail.params.run_datetime ? fmtRunDatetime(detail.params.run_datetime) : '-'}
+                      {detail.params.run_datetime ? fmtRunDate(detail.params.run_datetime) : '-'}
                     </span>
                   </div>
                   <div className="min-w-0">
@@ -339,7 +350,7 @@ export default function ExperimentResultDetail() {
               {metricSources ? (
                 <div className="space-y-2">
                   <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">정답 경로</span>
+                    <span className="text-xs text-gray-500 block mb-0.5">비교 데이터 경로</span>
                     <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
                       {metricSources.observation_dataset_dir ?? '-'}
                     </span>
@@ -361,8 +372,8 @@ export default function ExperimentResultDetail() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  <p className="text-xs text-gray-400 text-center">정답 데이터 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">TC 등록 시 데이터셋 미선택</p>
+                  <p className="text-xs text-gray-400 text-center">비교 데이터 없음</p>
+                  <p className="text-[11px] text-gray-300 text-center">TC 등록 시 경로 미지정</p>
                 </div>
               )}
             </div>
@@ -373,7 +384,7 @@ export default function ExperimentResultDetail() {
               <div className="space-y-2">
                 <div className="min-w-0">
                   <span className="text-xs text-gray-500 block mb-0.5">요청자</span>
-                  <span className="text-xs font-medium text-gray-900 block break-words">{job?.user_name}</span>
+                  <span className="text-xs font-medium text-gray-900 block break-words">{displayRequester}</span>
                 </div>
                 <div className="min-w-0">
                   <span className="text-xs text-gray-500 block mb-0.5">등록 시각</span>

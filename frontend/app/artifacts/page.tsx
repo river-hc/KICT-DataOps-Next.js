@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getArtifactsByRun, type TrainingJob, type Artifact } from '@/lib/api';
+import { getExperimentJobs, getArtifactsByRun, getUsername, type TrainingJob, type Artifact } from '@/lib/api';
+import { loadTcModelMeta } from '@/lib/experimentStore';
 
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
@@ -63,6 +64,18 @@ export default function Artifacts() {
   };
 
   const completed = trainings.filter(t => t.status.toUpperCase() === 'COMPLETED');
+  const currentUser = getUsername() ?? 'admin';
+
+  const displayRequester = (job: TrainingJob): string => {
+    const stored = loadTcModelMeta(job.job_id)?.requester;
+    if (stored) return stored;
+    return job.user_name && job.user_name !== 'anonymous' ? job.user_name : currentUser;
+  };
+
+  const displayMode = (job: TrainingJob): string => {
+    const stored = loadTcModelMeta(job.job_id)?.architecture;
+    return stored ?? job.mode ?? '-';
+  };
 
   if (loading) {
     return (
@@ -101,7 +114,7 @@ export default function Artifacts() {
                 >
                   <p className="text-sm font-medium text-gray-800 truncate">{t.experiment_name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    {t.user_name} · {t.mode}
+                    {displayRequester(t)} · {displayMode(t)}
                     {t.run_id != null && (
                       <span className="ml-1.5 font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
                         Run #{t.run_id}
