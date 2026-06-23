@@ -3,33 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Layout from '@/lib/Layout';
 import {
-  getLocalSystem, getTrainings,
-  type LocalSystemInfo, type TrainingJob,
+  getLocalSystem,
+  type LocalSystemInfo,
   // 백엔드 GPU 인식: 당장 미사용 — 주석 처리 (2026-06-12)
   // getSystemStatus, type SystemStatus,
 } from '@/lib/api';
 
 const POLL_MS      = 3000;
 const HISTORY_MAX  = 40;   // 스파크라인 최대 포인트 수 (3초 × 40 = 약 2분)
-
-// ─── 유틸 ─────────────────────────────────────────────────────────────────────
-
-function fmtElapsed(start: string | null): string {
-  if (!start) return '-';
-  const s = Math.max(0, Math.floor((Date.now() - new Date(start).getTime()) / 1000));
-  if (s < 60)   return `${s}초`;
-  if (s < 3600) return `${Math.floor(s / 60)}분 ${s % 60}초`;
-  return `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분`;
-}
-
-function fmtUptime(sec: number): string {
-  const d = Math.floor(sec / 86400);
-  const h = Math.floor((sec % 86400) / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}일 ${h}시간 ${m}분`;
-  if (h > 0) return `${h}시간 ${m}분`;
-  return `${m}분`;
-}
 
 // ─── 스파크라인 (프론트 메모리 누적 — 새로고침 시 초기화) ─────────────────────
 
@@ -51,29 +32,6 @@ function Sparkline({ points }: { points: number[] }) {
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="flex-shrink-0">
       <path d={path} fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
-  );
-}
-
-// ─── 헬스 요약 카드 ───────────────────────────────────────────────────────────
-
-function SummaryCard({
-  label, value, sub, tone = 'gray',
-}: {
-  label: string; value: string; sub?: string; tone?: 'blue' | 'emerald' | 'amber' | 'red' | 'gray';
-}) {
-  const toneCls: Record<string, string> = {
-    blue:    'text-blue-600',
-    emerald: 'text-emerald-600',
-    amber:   'text-amber-600',
-    red:     'text-red-600',
-    gray:    'text-gray-700',
-  };
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">{label}</p>
-      <p className={`text-3xl font-bold ${toneCls[tone]}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
-    </div>
   );
 }
 
@@ -111,10 +69,8 @@ function ResourceGauge({
 
 export default function System() {
   const [local, setLocal]       = useState<LocalSystemInfo | null>(null);
-  const [jobs, setJobs]         = useState<TrainingJob[]>([]);
   // 백엔드 GPU 인식: 당장 미사용 — 주석 처리 (2026-06-12)
   // const [backendGpu, setBackendGpu] = useState<SystemStatus | null>(null);
-  const [backendLatency, setBackendLatency] = useState<number | null>(null);
   const [loading, setLoading]   = useState(true);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
@@ -123,20 +79,7 @@ export default function System() {
   const [, bumpHistory] = useState(0);
 
   const poll = useCallback(async () => {
-    const t0 = performance.now();
-    const [sys, trainings] = await Promise.all([
-      getLocalSystem().catch(() => null),
-      getTrainings().then(d => {
-        setBackendLatency(Math.round(performance.now() - t0));
-        return d;
-      }).catch(() => {
-        setBackendLatency(null);
-        return null;
-      }),
-      // 백엔드 GPU 인식: 당장 미사용 — 주석 처리 (2026-06-12)
-      // 복원 시: 배열에 getSystemStatus().catch(() => null) 추가 + bGpu 구조분해 + setBackendGpu(bGpu)
-      // getSystemStatus().catch(() => null),
-    ]);
+    const sys = await getLocalSystem().catch(() => null);
 
     if (sys) {
       setLocal(sys);
@@ -148,7 +91,6 @@ export default function System() {
       }
       bumpHistory(n => n + 1);
     }
-    if (trainings) setJobs(trainings);
 
     setUpdatedAt(new Date());
     setLoading(false);
@@ -159,12 +101,6 @@ export default function System() {
     const t = setInterval(poll, POLL_MS);
     return () => clearInterval(t);
   }, [poll]);
-
-  // 작업 부하 집계 (백엔드 기준 — 작업은 백엔드 서버에서 실행됨)
-  const statusOf = (j: TrainingJob) => j.status.toUpperCase();
-  const runningJobs = jobs.filter(j => statusOf(j) === 'RUNNING');
-  const queuedCount = jobs.filter(j => statusOf(j) === 'QUEUED').length;
-  const failedCount = jobs.filter(j => statusOf(j) === 'FAILED').length;
 
   if (loading) {
     return (
@@ -191,48 +127,6 @@ export default function System() {
           </p>
         </div>
       )}
-
-      {/* GPU 미감지 안내 */}
-      {gpu && !gpu.available && (
-        <div className="mb-5 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-sm font-semibold text-amber-800 mb-1">
-            이 PC에서 GPU가 감지되지 않습니다
-            {gpu.error && <span className="font-mono font-normal text-xs ml-1.5">({gpu.error})</span>}
-          </p>
-          <p className="text-xs text-amber-700 leading-relaxed">
-            NVIDIA 드라이버가 설치되어 있지 않거나 GPU가 없는 환경입니다.
-            실험·학습 작업 자체는 백엔드 서버에서 실행되므로 작업 수행에는 영향이 없습니다.
-          </p>
-        </div>
-      )}
-
-      {/* 헬스 요약 카드 */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <SummaryCard
-          label="백엔드 API 응답"
-          value={backendLatency != null ? `${backendLatency}ms` : '연결 실패'}
-          sub="GET /trainings 왕복 시간"
-          tone={backendLatency != null ? (backendLatency < 500 ? 'emerald' : 'amber') : 'red'}
-        />
-        <SummaryCard
-          label="GPU (현재 PC)"
-          value={gpu?.available ? `정상 × ${gpu.gpu_count}` : '미감지'}
-          sub={gpu?.available ? gpu.gpus[0]?.name : undefined}
-          tone={gpu?.available ? 'emerald' : 'amber'}
-        />
-        <SummaryCard
-          label="실행 중 작업"
-          value={`${runningJobs.length}건`}
-          sub={`대기 ${queuedCount}건 · 백엔드 기준`}
-          tone={runningJobs.length > 0 ? 'blue' : 'gray'}
-        />
-        <SummaryCard
-          label="실패 작업"
-          value={`${failedCount}건`}
-          sub="전체 목록 기준 누적"
-          tone={failedCount > 0 ? 'red' : 'gray'}
-        />
-      </div>
 
       {/* GPU 상세 (실시간 폴링 + 사용률 추이) */}
       {gpu && gpu.gpus.length > 0 && (
@@ -310,87 +204,6 @@ export default function System() {
         </div>
       </div>
 
-      {/* 실행 중 작업 목록 — 백엔드 기준 */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-          <span className="text-sm font-semibold text-gray-700">실행 중 작업</span>
-          <span className="text-xs text-gray-400">백엔드 서버 기준</span>
-          {runningJobs.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-              {runningJobs.length}건
-            </span>
-          )}
-        </div>
-        {runningJobs.length === 0 ? (
-          <div className="py-10 text-center text-gray-400 text-sm">실행 중인 작업이 없습니다.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                {['ID', '작업명', '모드', '사용자', '시작 시각', '경과 시간'].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {runningJobs.map(job => (
-                <tr key={job.job_id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs text-gray-600">#{job.job_id}</td>
-                  <td className="px-5 py-3 font-medium text-gray-800">{job.experiment_name || '-'}</td>
-                  <td className="px-5 py-3 text-xs text-gray-500">{job.mode}</td>
-                  <td className="px-5 py-3 text-xs text-gray-500">{job.user_name || '-'}</td>
-                  <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
-                    {job.started_at ? new Date(job.started_at).toLocaleString('ko-KR', {
-                      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-                    }) : '-'}
-                  </td>
-                  <td className="px-5 py-3 text-xs text-gray-600 tabular-nums">{fmtElapsed(job.started_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* 환경 정보 — 현재 PC 기준 */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <span className="text-sm font-semibold text-gray-700">환경 정보</span>
-        </div>
-        <div className="grid grid-cols-2">
-          {[
-            { label: 'OS / 커널',   value: <span className="text-gray-600 font-mono">{local ? `${local.os.platform} ${local.os.release}` : '-'}</span> },
-            { label: 'Node.js',     value: <span className="text-gray-600 font-mono">{local?.os.node ?? '-'}</span> },
-            { label: '호스트명',     value: <span className="text-gray-600 font-mono">{local?.host ?? '-'}</span> },
-            { label: '가동 시간',    value: <span className="text-gray-600 font-mono">{local ? fmtUptime(local.os.uptime_seconds) : '-'}</span> },
-            // 백엔드 GPU 인식: 당장 미사용 — 주석 처리 (2026-06-12)
-            // 복원 시: 상단 import·backendGpu state·poll의 getSystemStatus 호출도 함께 해제
-            // {
-            //   // 사용자 PC마다 달라지는 유일한 백엔드 변수 — 호스트 GPU는 정상인데
-            //   // 여기가 미감지면 toolkit 미설치 / compose GPU 설정 누락
-            //   label: '백엔드 GPU 인식',
-            //   value: backendGpu == null ? (
-            //     <span className="text-gray-400">확인 불가 (백엔드 연결 실패)</span>
-            //   ) : backendGpu.available ? (
-            //     <span className="text-emerald-600 font-semibold">정상 × {backendGpu.gpu_count}</span>
-            //   ) : (
-            //     <span className="text-amber-600 font-semibold">
-            //       미감지
-            //       {local?.gpu.available && <span className="font-normal text-amber-500"> — 호스트 GPU는 정상, 컨테이너 GPU 연결 확인 필요</span>}
-            //     </span>
-            //   ),
-            // },
-          ].map(row => (
-            <div key={row.label} className="flex items-center gap-3 px-5 py-3 border-b border-gray-100 text-xs">
-              <span className="text-gray-400 w-32 flex-shrink-0">{row.label}</span>
-              {row.value}
-            </div>
-          ))}
-        </div>
-      </div>
     </Layout>
   );
 }
