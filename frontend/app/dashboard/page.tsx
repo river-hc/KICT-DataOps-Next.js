@@ -14,6 +14,7 @@ import {
   type SystemStatus,
 } from '@/lib/api';
 import { metricsOrSample } from '@/lib/metrics';
+import { loadClientExperiments, loadExpTcMap } from '@/lib/experimentStore';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,50 @@ const DONUT_SEGS: { key: TabKey; label: string; color: string }[] = [
   { key: 'FAILED',    label: '실패',    color: '#ef4444' },
 ];
 
-function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
+function formatToday(): string {
+  return formatDateKey(new Date());
+}
+
+function formatDateKey(date: Date): string {
+  const d = new Date();
+  d.setTime(date.getTime());
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function isTodayJob(job: TrainingJob): boolean {
+  const ts = job.created_at ?? job.started_at ?? job.finished_at;
+  if (!ts) return false;
+  return formatDateKey(new Date(ts)) === formatToday();
+}
+
+function statusMatches(job: TrainingJob, status: TabKey): boolean {
+  const s = job.status.toUpperCase();
+  if (status === 'FAILED') return s === 'FAILED' || s === 'CANCELED';
+  return s === status;
+}
+
+function findExperimentName(jobId: number): string {
+  const tcMap = loadExpTcMap();
+  const experiments = loadClientExperiments();
+  for (const exp of experiments) {
+    const mappedIds = tcMap[exp.id] ?? exp.tc_job_ids;
+    if (mappedIds.includes(jobId)) return exp.name;
+  }
+  return '-';
+}
+
+function StatusDonutChart({
+  jobs,
+  activeStatus,
+  onStatusChange,
+}: {
+  jobs: TrainingJob[];
+  activeStatus: TabKey;
+  onStatusChange: (status: TabKey) => void;
+}) {
   const [progress,   setProgress]   = useState(0);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
@@ -80,6 +124,9 @@ function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-full">
+      <div className="px-4 pt-4 pb-1">
+        <p className="text-xs font-semibold text-gray-500">{formatToday()} 기준</p>
+      </div>
       <div className="flex flex-col items-center px-4 py-4 gap-3 flex-1 justify-center">
         <svg viewBox="0 0 216 216" className="w-full max-w-[296px]">
           <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={SW} />
@@ -98,7 +145,9 @@ function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
                 strokeLinecap="butt"
                 onMouseEnter={() => setHoveredKey(a.key)}
                 onMouseLeave={() => setHoveredKey(null)}
-                style={{ opacity: isHovered ? 0.7 : 1, transition: 'opacity 0.15황' }}
+                onClick={() => onStatusChange(a.key)}
+                className="cursor-pointer"
+                style={{ opacity: isHovered ? 0.7 : 1, transition: 'opacity 0.15s' }}
               />
             );
           })}
@@ -110,9 +159,12 @@ function StatusDonutChart({ jobs }: { jobs: TrainingJob[] }) {
           {arcs.map(a => (
             <div
               key={a.key}
-              className="flex flex-col items-center gap-0.5 rounded-lg p-1.5 hover:bg-gray-50"
+              className={`flex flex-col items-center gap-0.5 rounded-lg p-1.5 cursor-pointer transition-colors ${
+                activeStatus === a.key ? 'bg-gray-100' : 'hover:bg-gray-50'
+              }`}
               onMouseEnter={() => setHoveredKey(a.key)}
               onMouseLeave={() => setHoveredKey(null)}
+              onClick={() => onStatusChange(a.key)}
             >
               <div className="flex items-center gap-1.5 w-full">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: a.color }} />
@@ -142,17 +194,38 @@ interface ChartPoint {
   csi: number;
 }
 
-// 실험 TC별 결과 테이블 — 최근 완료 실험 최대 5건 (기존 성능 추이 그래프 대체, 2026-06-12 피드백)
-function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean }) {
+const STATUS_LABEL: Record<TabKey, string> = {
+  RUNNING: '실행 중',
+  QUEUED: '대기 중',
+  COMPLETED: '완료',
+  FAILED: '실패',
+};
+
+// 실험 케이스별 결과 테이블 — 도넛 차트에서 선택한 상태의 당일 작업 표시
+function TcResultsTable({
+  pts,
+  jobs,
+  activeStatus,
+  loading,
+}: {
+  pts: ChartPoint[];
+  jobs: TrainingJob[];
+  activeStatus: TabKey;
+  loading: boolean;
+}) {
   const router = useRouter();
-  const rows = [...pts].slice(-5).reverse(); // 최신순 5건
+  const metricByJobId = new Map(pts.map(pt => [pt.job_id, pt]));
+  const rows = jobs
+    .filter(job => statusMatches(job, activeStatus))
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+    .slice(0, 5);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-gray-700">실험 결과</h3>
-          <p className="text-xs text-gray-400 mt-0.5">최근 완료 실험 TC 지표 · 최대 5건</p>
+          <p className="text-xs text-gray-400 mt-0.5">{STATUS_LABEL[activeStatus]} 작업 · 최대 5건</p>
         </div>
         {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
       </div>
@@ -163,14 +236,14 @@ function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean 
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <p className="text-xs text-gray-400">지표가 있는 완료 실험이 없습니다</p>
+          <p className="text-xs text-gray-400">해당 상태의 작업이 없습니다</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {['TC', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+                {['실험명', '사용자', '실험 케이스', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -178,23 +251,32 @@ function TcResultsTable({ pts, loading }: { pts: ChartPoint[]; loading: boolean 
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
-                <tr key={r.job_id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() => router.push(`/experiment-results/${r.job_id}`)}>
+              {rows.map(job => {
+                const metrics = metricByJobId.get(job.job_id);
+                const modelVersion = metrics?.sub ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+                const clickable = ['COMPLETED', 'FAILED', 'CANCELED'].includes(job.status.toUpperCase());
+                return (
+                <tr
+                  key={job.job_id}
+                  className={`border-b border-gray-100 transition-colors ${clickable ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
+                  onClick={() => { if (clickable) router.push(`/experiment-results/${job.job_id}`); }}
+                >
+                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.job_id)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{job.user_name || '-'}</td>
                   <td className="px-4 py-2.5 max-w-[180px]">
-                    <p className="text-sm font-medium text-gray-800 truncate">{r.name}</p>
-                    <p className="text-[11px] text-gray-400">#{r.job_id} · {r.label}</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">{job.experiment_name}</p>
+                    <p className="text-[11px] text-gray-400">#{job.job_id} · {job.status}</p>
                   </td>
                   <td className="px-4 py-2.5">
-                    <span className={`text-xs font-semibold ${/v3/i.test(r.sub) ? 'text-emerald-600' : 'text-amber-600'}`}>
-                      {r.sub}
+                    <span className={`text-xs font-semibold ${/v3/i.test(modelVersion) ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {modelVersion}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.mae.toFixed(3)}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.rmse.toFixed(3)}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{r.csi.toFixed(3)}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{metrics ? metrics.mae.toFixed(3) : '-'}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{metrics ? metrics.rmse.toFixed(3) : '-'}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-gray-700 tabular-nums">{metrics ? metrics.csi.toFixed(3) : '-'}</td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
@@ -212,6 +294,7 @@ function Dashboard() {
   const [loading,      setLoading]      = useState(true);
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
+  const [activeStatus, setActiveStatus] = useState<TabKey>('COMPLETED');
   const prevCompletedIdsRef = useRef('');
 
   const fetchAll = useCallback(async () => {
@@ -235,10 +318,10 @@ function Dashboard() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
-  // 완료된 잡 목록이 바뀔 때만 result 재조회
+  // 오늘 완료된 잡 목록이 바뀔 때만 result 재조회
   useEffect(() => {
     const completed = expJobs
-      .filter(j => j.status === 'COMPLETED')
+      .filter(j => j.status === 'COMPLETED' && isTodayJob(j))
       .sort((a, b) => a.job_id - b.job_id);
     const idsKey = completed.map(j => j.job_id).join(',');
     if (idsKey === prevCompletedIdsRef.current) return;
@@ -285,6 +368,7 @@ function Dashboard() {
   const allJobs = Array.from(
     new Map([...expJobs, ...trainJobs].map(j => [j.job_id, j])).values()
   );
+  const todayJobs = allJobs.filter(isTodayJob);
   return (
     <Layout>
       {/* 페이지 타이틀은 공통 헤더가 표시 — GPU 온라인 배지만 우측 정렬로 유지 */}
@@ -295,13 +379,22 @@ function Dashboard() {
         </div>
       )}
 
-      {/* 도넛 차트 + 실험 TC 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
+      {/* 도넛 차트 + 실험 케이스 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
       <div className="flex gap-4 mb-6 items-stretch">
         <div className="w-[40%]">
-          <StatusDonutChart jobs={allJobs} />
+          <StatusDonutChart
+            jobs={todayJobs}
+            activeStatus={activeStatus}
+            onStatusChange={setActiveStatus}
+          />
         </div>
         <div className="w-[60%]">
-          <TcResultsTable pts={chartPts} loading={chartLoading} />
+          <TcResultsTable
+            pts={chartPts}
+            jobs={todayJobs}
+            activeStatus={activeStatus}
+            loading={chartLoading}
+          />
         </div>
       </div>
     </Layout>
