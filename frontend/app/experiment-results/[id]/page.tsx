@@ -23,12 +23,12 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
   const pct  = Math.min(100, Math.max(0, (value / meta.max) * 100));
   const good = meta.higherBetter ? pct > 60 : pct < 40;
   return (
-    <div className="flex items-center gap-3 py-1">
-      <span className="text-xs text-gray-500 w-12 shrink-0">{meta.label}</span>
-      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1 min-w-0">
+      <span className="w-9 shrink-0 text-xs text-gray-500 truncate">{meta.label}</span>
+      <div className="min-w-[2rem] flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
         <div className={`h-full ${good ? 'bg-emerald-500' : 'bg-amber-500'} rounded-full`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs font-mono font-bold text-gray-800 w-14 text-right shrink-0">
+      <span className="ml-auto shrink-0 max-w-full text-[11px] font-mono font-bold text-gray-800 text-right tabular-nums whitespace-nowrap">
         {value.toFixed(3)}
         {meta.unit && <span className="text-gray-400 font-normal text-[10px] ml-0.5">{meta.unit}</span>}
       </span>
@@ -39,7 +39,7 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
 // ─── 부모 실험 찾기 ───────────────────────────────────────────────────────────
 
 function findParentExperimentId(jobId: number): number | null {
-  // 사용자 추가 TC 매핑(localStorage)을 우선 — 가장 권위 있는 소스
+  // 사용자 추가 실험 케이스 매핑(localStorage)을 우선 — 가장 권위 있는 소스
   const tcMap = loadExpTcMap();
   for (const [expId, jobIds] of Object.entries(tcMap)) {
     if ((jobIds as number[]).includes(jobId)) return Number(expId);
@@ -69,7 +69,6 @@ export default function ExperimentResultDetail() {
   const [detail,       setDetail]       = useState<TrainingResult | null>(null);
   const [logs,         setLogs]         = useState<string[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [logsOpen,     setLogsOpen]     = useState(false);
   const [parentExpId,  setParentExpId]  = useState<number | null>(null);
   // 메모는 백엔드가 응답하지 않으므로 클라이언트 localStorage에서 직접 로드 (detail과 독립)
   const [memo,         setMemo]         = useState<string | null>(null);
@@ -144,7 +143,7 @@ export default function ExperimentResultDetail() {
     ? stepMin === stepMax ? `${stepMin}분` : `${stepMin}분 ~ ${stepMax}분`
     : '-';
 
-  // 성능 지표 — 전체 단일 값(MAE/RMSE/CSI). 실데이터 우선, 없으면 화면 확인용 샘플로 폴백
+  // 성능 지표 — 전체 단일 값(MAE/RMSE/CSI)
   const pm             = metricsOrSample(detail?.metrics, jobId ?? 0, detail?.params.model_version ?? null);
   const metricSources  = detail?.metric_sources;
   const matchedCount   = metricSources?.matched_targets ? Object.keys(metricSources.matched_targets).length : 0;
@@ -158,13 +157,14 @@ export default function ExperimentResultDetail() {
       {/* 뒤로가기 + 헤더 */}
       <div className="mb-3 flex-shrink-0">
         <button
+          aria-label="실험 케이스 목록으로 돌아가기"
+          title="실험 케이스 목록으로 돌아가기"
           onClick={() => router.push(backHref)}
-          className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors mb-2"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 transition-colors mb-2"
         >
-          <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 4l-5 4 5 4" />
           </svg>
-          테스트 케이스 목록
         </button>
 
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -200,8 +200,7 @@ export default function ExperimentResultDetail() {
         </div>
       </div>
 
-      {/* 본문 2열×2행 — 행1: 슬라이드 / 정보 스택(같은 높이), 행2: 메모(좌하단) */}
-      {/* 메모를 아래 행으로 분리해, 로그(mt-auto) 하단이 메모가 아닌 슬라이드 canvas 하단과 정렬됨 */}
+      {/* 본문 2열×2행 — 행1: 슬라이드 / 정보 스택, 행2: 로그(좌하단) */}
       <div className="grid grid-cols-[9fr_16fr] grid-rows-[1fr_auto] gap-x-4 flex-1 min-h-0">
 
         {/* (1,1) QPF 슬라이드 — 좌상단 */}
@@ -232,7 +231,7 @@ export default function ExperimentResultDetail() {
           )}
         </div>
 
-        {/* (1,2)-(2,2) 정보 스택 — 두 행에 걸쳐, 하단이 좌측 메모 카드 하단과 정렬됨. 컬럼 자체는 스크롤하지 않음 */}
+        {/* (1,2)-(2,2) 정보 스택 — 두 행에 걸쳐 배치 */}
         <div className="row-span-2 flex flex-col gap-3 min-w-0 min-h-0">
 
           {/* 왼쪽 슬라이드 제목 줄과 높이를 맞춰, 첫 카드가 슬라이드 이미지 상단선에 정렬되도록 함 */}
@@ -303,20 +302,14 @@ export default function ExperimentResultDetail() {
 
             {/* 성능 지표 — 전체 단일 값 (MAE / RMSE / CSI) */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 min-w-0">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">성능 지표</p>
-                {pm.isSample && (
-                  <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">샘플</span>
-                )}
               </div>
               <div className="space-y-0.5">
                 {pm.summary.mae  != null && <MetricBar metricKey="mae"  value={pm.summary.mae} />}
                 {pm.summary.rmse != null && <MetricBar metricKey="rmse" value={pm.summary.rmse} />}
                 {pm.summary.csi  != null && <MetricBar metricKey="csi"  value={pm.summary.csi} />}
               </div>
-              {pm.isSample && (
-                <p className="text-[10px] text-gray-300 mt-1.5">백엔드 지표 연동 시 실데이터로 자동 대체</p>
-              )}
             </div>
 
             {/* 모델 설정 */}
@@ -373,7 +366,7 @@ export default function ExperimentResultDetail() {
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <p className="text-xs text-gray-400 text-center">비교 데이터 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">TC 등록 시 경로 미지정</p>
+                  <p className="text-[11px] text-gray-300 text-center">실험 케이스 등록 시 경로 미지정</p>
                 </div>
               )}
             </div>
@@ -407,47 +400,26 @@ export default function ExperimentResultDetail() {
 
           </div>
 
-          {/* 로그 아코디언 — 접으면 정보 카드 바로 아래, 펼치면 카드 아래 남은 공간 전체를
-              채우고 본문만 내부 스크롤 (상단 카드는 고정) */}
-          {logs.length > 0 && (
-            <div className={`rounded-xl overflow-hidden border border-gray-700 shadow-sm flex flex-col min-h-0 ${
-              logsOpen ? 'flex-1' : 'flex-shrink-0'
-            }`}>
-              <button
-                onClick={() => setLogsOpen(v => !v)}
-                className="w-full flex-shrink-0 flex items-center gap-2 px-4 py-3 bg-gray-900 text-gray-200 text-sm font-semibold text-left hover:bg-gray-800 transition-colors"
-              >
-                <svg
-                  className={`w-3.5 h-3.5 transition-transform duration-200 ${logsOpen ? 'rotate-90' : ''}`}
-                  fill="currentColor" viewBox="0 0 16 16"
-                >
-                  <path d="M6 4l5 4-5 4V4z"/>
-                </svg>
-                로그 표시
-                <span className="ml-auto text-xs text-gray-500 font-normal">{logs.length}줄</span>
-              </button>
-              {logsOpen && (
-                <div className="bg-black p-4 flex-1 min-h-0 overflow-y-auto font-mono text-xs leading-5">
-                  {logs.map((line, i) => (
-                    <div key={i} className={
-                      line.startsWith('[INFO]')  ? 'text-gray-200' :
-                      line.startsWith('[WARN]')  ? 'text-yellow-300' :
-                      line.startsWith('[ERROR]') ? 'text-red-400' :
-                      'text-gray-500'
-                    }>{line}</div>
-                  ))}
-                </div>
-              )}
+          {memo && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 max-h-32 overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
+              <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
             </div>
           )}
 
         </div>
 
-        {/* (2,1) 메모 — 좌하단. 슬라이드 아래 행에 배치 (위 행 높이에 영향 없음) */}
-        {memo && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 mt-3 max-h-32 overflow-y-auto">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
-            <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
+        {/* (2,1) 로그 — 슬라이드 아래 행에 표시 */}
+        {logs.length > 0 && (
+          <div className="mt-3 rounded-xl border border-gray-700 bg-black p-4 max-h-32 overflow-y-auto font-mono text-xs leading-5">
+            {logs.map((line, i) => (
+              <div key={i} className={
+                line.startsWith('[INFO]')  ? 'text-gray-200' :
+                line.startsWith('[WARN]')  ? 'text-yellow-300' :
+                line.startsWith('[ERROR]') ? 'text-red-400' :
+                'text-gray-500'
+              }>{line}</div>
+            ))}
           </div>
         )}
       </div>
