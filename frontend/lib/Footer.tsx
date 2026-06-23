@@ -4,11 +4,16 @@
 export default function Footer() {
   return (
     <footer
-      className="flex-shrink-0 border-t h-12 px-6 flex items-center justify-between"
+      className="flex-shrink-0 border-t h-12 px-6 flex items-center justify-end"
       style={{ background: 'var(--header-bg)', borderColor: 'var(--header-border)' }}
     >
-      <span className="text-xs" style={{ color: 'var(--sidebar-text)' }}>DataOps Platform</span>
-      <span className="text-xs" style={{ color: 'var(--sidebar-text)' }}>v1.0.0 &nbsp;·&nbsp; &copy; 2026 KICT</span>
+      <span className="flex items-center gap-3 text-xs" style={{ color: 'var(--sidebar-text)' }}>
+        <span>v1.0.0</span>
+        <span>·</span>
+        <span>&copy; 2026 KICT</span>
+        <span>|</span>
+        <span>developed by River-AI</span>
+      </span>
     </footer>
   );
 }

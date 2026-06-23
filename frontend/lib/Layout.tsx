@@ -1,37 +1,12 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import Header from './Header';
+import Header, { resolveTitle } from './Header';
 import Footer from './Footer';
 
 const THEME = process.env.NEXT_PUBLIC_THEME;
-const STATUS_CHECK_MS = 30_000;
-const STATUS_TIMEOUT_MS = 5_000;
-
-type SidebarSystemStatus = 'checking' | 'online' | 'offline';
-
-async function checkBackendOnline(): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
-
-  try {
-    const token = window.localStorage.getItem('token');
-    const res = await fetch('/api/v1/trainings', {
-      cache: 'no-store',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: controller.signal,
-    });
-
-    return res.ok || res.status === 401 || res.status === 403;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timeout);
-  }
-}
 
 // ─── 사이드바 SVG 아이콘 ──────────────────────────────────────────────────────
 
@@ -74,8 +49,9 @@ const Icons = {
   ),
   system: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2" />
+      <rect x="4" y="3" width="16" height="7" rx="2" />
+      <rect x="4" y="14" width="16" height="7" rx="2" />
+      <path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" />
     </svg>
   ),
 };
@@ -100,7 +76,7 @@ const navItems: NavEntry[] = [
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
-  { name: '시스템',          href: '/system',       icon: Icons.system     },
+  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
 ];
 
 const modernNavItems: NavEntry[] = [
@@ -108,23 +84,25 @@ const modernNavItems: NavEntry[] = [
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
-  { name: '시스템',          href: '/system',       icon: Icons.system     },
+  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
 ];
 
 interface LayoutProps {
   children: ReactNode;
   /** true: 바디 영역이 패딩/스크롤 없이 꽉 채움 (전체화면 대시보드용) */
   fullHeight?: boolean;
+  /** 페이지 타이틀 카드 좌측 타이틀 영역 */
+  title?: ReactNode;
+  /** 페이지 타이틀 카드 우측 액션 영역 */
+  titleActions?: ReactNode;
 }
 
 // ─── 사이드바 레이아웃 (포트 3000·3001) ──────────────────────────────────────
 
-function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
+function LayoutSidebar({ children, fullHeight = false, title, titleActions }: LayoutProps) {
   const pathname = usePathname();
   const [open, setOpen]           = useState(true);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({ '학습': true });
-  const [systemStatus, setSystemStatus] = useState<SidebarSystemStatus>('checking');
-  const [lastStatusCheck, setLastStatusCheck] = useState<Date | null>(null);
 
   const isModern = THEME === 'modern';
   const entries: NavEntry[] = isModern ? modernNavItems : navItems;
@@ -133,50 +111,10 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
     pathname === href || (href !== '/' && pathname?.startsWith(href));
 
   const isGroupActive = (children: NavItem[]) => children.some(c => isItemActive(c.href));
+  const pageTitle = resolveTitle(pathname);
+  const titleNode = title ?? pageTitle;
 
-  // 헤더 타이틀은 lib/Header.tsx의 ROUTE_TITLES에서 라우트 기반으로 결정
-
-  useEffect(() => {
-    let mounted = true;
-
-    const refreshStatus = async () => {
-      const online = await checkBackendOnline();
-      if (!mounted) return;
-      setSystemStatus(online ? 'online' : 'offline');
-      setLastStatusCheck(new Date());
-    };
-
-    refreshStatus();
-    const timer = window.setInterval(refreshStatus, STATUS_CHECK_MS);
-
-    return () => {
-      mounted = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const statusMeta = {
-    checking: {
-      label: 'Checking...',
-      color: '#d97706',
-      title: '백엔드 API 연결 확인 중',
-    },
-    online: {
-      label: 'System Online',
-      color: 'var(--status-text)',
-      title: '백엔드 API 응답 정상',
-    },
-    offline: {
-      label: 'System Offline',
-      color: '#dc2626',
-      title: '백엔드 API 연결 실패',
-    },
-  } satisfies Record<SidebarSystemStatus, { label: string; color: string; title: string }>;
-
-  const currentStatus = statusMeta[systemStatus];
-  const statusTitle = lastStatusCheck
-    ? `${currentStatus.title} · 마지막 확인 ${lastStatusCheck.toLocaleTimeString('ko-KR')}`
-    : currentStatus.title;
+  // 페이지 타이틀은 lib/Header.tsx의 ROUTE_TITLES에서 라우트 기반으로 결정
 
   return (
     // 헤더·푸터는 viewport 최상단·최하단 고정, 스크롤은 main 내부에서만 발생.
@@ -189,45 +127,40 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
 
       {/* 사이드바 */}
       <aside
-        className={`${open ? 'w-56' : 'w-16'} transition-all duration-300 flex flex-col flex-shrink-0`}
+        className={`${open ? 'w-56' : 'w-16'} relative transition-all duration-300 flex flex-col flex-shrink-0`}
         style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--sidebar-border)' }}
       >
         {/* 로고 — 헤더와 동일 높이(h-16)로 하단 경계선 일치 */}
-        <div className="h-16 flex-shrink-0 flex items-center pl-4 pr-1 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
+        <div className="h-16 flex-shrink-0 flex items-center px-4 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
           {open && (
             <div className="flex-1 min-w-0 flex items-center">
-              <Image
-                src="/Images/KICT_visual_txt3.png"
-                alt="KICT DataOps"
-                width={183}
-                height={55}
-                priority
-                className="h-8 w-auto"
-              />
+              <span className="text-[24px] leading-8 font-semibold whitespace-nowrap" style={{ color: 'var(--logo-text)' }}>
+                KICT DataOps
+              </span>
             </div>
           )}
-          <button
-            onClick={() => setOpen(v => !v)}
-            className={`flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-opacity opacity-60 hover:opacity-100 ${open ? 'ml-auto' : 'mx-auto'}`}
-            style={{ color: 'var(--logo-text)' }}
-            title={open ? '사이드바 접기' : '사이드바 펴기'}
-          >
-            <svg
-              viewBox="0 0 16 16"
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              {open
-                ? <path d="M11 3l-6 5 6 5" />
-                : <path d="M5 3l6 5-6 5" />
-              }
-            </svg>
-          </button>
         </div>
+
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="absolute -right-3 top-1/2 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-md transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
+          title={open ? '사이드바 접기' : '사이드바 펴기'}
+        >
+          <svg
+            viewBox="0 0 16 16"
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {open
+              ? <path d="M10 4L6 8l4 4" />
+              : <path d="M6 4l4 4-4 4" />
+            }
+          </svg>
+        </button>
 
         {/* 네비게이션 */}
         <nav className="flex-1 p-2 space-y-0.5">
@@ -320,17 +253,10 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
           })}
         </nav>
 
-        {/* 상태 — 푸터와 동일 높이(h-12)로 상단 경계선 일치 */}
+        {/* 하단 브랜드 — 푸터와 동일 높이(h-12)로 상단 경계선 일치 */}
         {open && (
           <div className="h-12 flex-shrink-0 flex items-center px-4 border-t" style={{ borderColor: 'var(--sidebar-border)' }}>
-            <div className="flex items-center gap-2 text-sm" style={{ color: currentStatus.color }} title={statusTitle}>
-              <span
-                className={`w-2 h-2 rounded-full bg-current flex-shrink-0 ${
-                  systemStatus === 'offline' ? '' : 'animate-pulse'
-                }`}
-              />
-              <span>{currentStatus.label}</span>
-            </div>
+            <span className="text-xs font-medium" style={{ color: 'var(--sidebar-text)' }}>DataOps Platform</span>
           </div>
         )}
       </aside>
@@ -343,7 +269,23 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
 
         {/* 바디 — 콘텐츠가 모서리에 붙지 않도록 모든 페이지 공통 p-8 여백 */}
         <main className={`flex-1 min-h-0 ${fullHeight ? 'overflow-hidden' : 'p-8 overflow-auto'}`}>
-          {children}
+          {fullHeight ? children : (
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
+                <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
+                  {titleNode}
+                </h1>
+                {titleActions && (
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {titleActions}
+                  </div>
+                )}
+              </div>
+              <div className="p-5">
+                {children}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* 전역 푸터 (lib/Footer.tsx) — viewport 최하단 고정 */}
@@ -354,6 +296,6 @@ function LayoutSidebar({ children, fullHeight = false }: LayoutProps) {
   );
 }
 
-export default function Layout({ children, fullHeight = false }: LayoutProps) {
-  return <LayoutSidebar fullHeight={fullHeight}>{children}</LayoutSidebar>;
+export default function Layout({ children, fullHeight = false, title, titleActions }: LayoutProps) {
+  return <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions}>{children}</LayoutSidebar>;
 }

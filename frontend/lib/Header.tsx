@@ -1,6 +1,5 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
 import UserPopup from './UserPopup';
 
 // 라우트별 헤더 타이틀 — 사이드바 항목 + 사이드바 미노출 상세 라우트
@@ -13,7 +12,7 @@ const ROUTE_TITLES: [string, string][] = [
   ['/trainings',          '학습'],
   ['/artifacts',          '아티팩트'],
   ['/models',             '모델 레지스트리'],
-  ['/system',             '시스템'],
+  ['/system',             '시스템 리소스'],
   ['/runs',               'Runs'],
   ['/profile',            '프로필 설정'],
 ];
@@ -28,9 +27,6 @@ export function resolveTitle(pathname: string | null): string {
 
 /** 전역 헤더 — viewport 최상단 고정 (사이드바 로고 영역과 동일 높이 h-16) */
 export default function Header() {
-  const pathname = usePathname();
-  const title = resolveTitle(pathname);
-
   return (
     <header
       className="h-16 flex-shrink-0 border-b px-6 flex items-center"
@@ -40,10 +36,7 @@ export default function Header() {
         boxShadow:   '0 1px 3px rgba(0,0,0,0.06)',
       }}
     >
-      <div className="flex-1 flex items-center justify-between">
-        <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
-          {title}
-        </h1>
+      <div className="flex-1 flex items-center justify-end">
         <UserPopup />
       </div>
     </header>
