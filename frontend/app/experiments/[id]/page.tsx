@@ -377,7 +377,7 @@ function DirectorySlot({ label, placeholder, value, onChange }: {
   );
 }
 
-// ─── TC 추가 모달 (NewExperimentModal) ────────────────────────────────────────
+// ─── 실험 케이스 추가 모달 (NewExperimentModal) ───────────────────────────────
 
 function AddTcModal({
   onClose, onSubmit, models,
@@ -528,7 +528,7 @@ export default function ExperimentDetailPage() {
 
   // 실험 환경 조회 (클라이언트 localStorage 기준)
   const [experiment, setExperiment] = useState<ClientExperiment | null | undefined>(undefined);
-  // TC = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+  // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
   const [userTcIds,  setUserTcIds]  = useState<number[]>([]);
   const [realJobs,   setRealJobs]   = useState<TrainingJob[]>([]);
   const [resultMap,  setResultMap]  = useState<Record<number, TrainingResult>>({});
@@ -547,7 +547,7 @@ export default function ExperimentDetailPage() {
     if (found) setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
 
-  // TC Map 변경 반영 (TC 추가 후)
+  // 실험 케이스 Map 변경 반영 (실험 케이스 추가 후)
   const refreshTcIds = useCallback(() => {
     setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
@@ -562,10 +562,10 @@ export default function ExperimentDetailPage() {
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // TC = 이 실험에만 매핑된 실 백엔드 job
+  // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job
   const tcJobs = realJobs.filter(j => userTcIds.includes(j.job_id));
 
-  // 완료된 TC의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
+  // 완료된 실험 케이스의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
   useEffect(() => {
     const completed = tcJobs.filter(j => j.status.toUpperCase() === 'COMPLETED' && !(j.job_id in resultMap));
     if (completed.length === 0) return;
@@ -576,7 +576,7 @@ export default function ExperimentDetailPage() {
     });
   }, [tcJobs, resultMap]);
 
-  // 활성 작업 폴링 (사용자 추가 TC가 실행 중일 때만)
+  // 활성 작업 폴링 (사용자 추가 실험 케이스가 실행 중일 때만)
   useEffect(() => {
     const hasActive = realJobs
       .filter(j => userTcIds.includes(j.job_id))
@@ -593,7 +593,7 @@ export default function ExperimentDetailPage() {
       .catch(() => setModels(applyStoredModelStatuses(FALLBACK_MODELS)));
   }, []);
 
-  // 실행 중 TC 로그
+  // 실행 중 실험 케이스 로그
   const selectedJob       = tcJobs.find(j => j.job_id === selectedId) ?? null;
   const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
 
@@ -619,7 +619,7 @@ export default function ExperimentDetailPage() {
     return () => clearInterval(id);
   }, [selectedId, isSelectedRunning]);
 
-  // TC 제출
+  // 실험 케이스 제출
   const handleSubmitTc = async (
     files: FormFiles,
     modelVersion: string,
@@ -660,7 +660,7 @@ export default function ExperimentDetailPage() {
       },
     });
 
-    // 실험 TC 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
+    // 실험 케이스 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
     // 메모도 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
     if (result?.job_id) {
       addTcToExpMap(expId, result.job_id);
@@ -702,15 +702,13 @@ export default function ExperimentDetailPage() {
   const totalTc = tcJobs.length;
   const operatingModels = models.filter(model => (model.status ?? '').toUpperCase() === 'SELECTED');
 
-  // 완료 TC별 요약 지표(실데이터 없으면 샘플) + 버전 비교용 최고값 계산
+  // 완료 실험 케이스별 요약 지표 + 버전 비교용 최고값 계산
   const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
-  let anySample = false;
   for (const job of tcJobs) {
     if (job.status.toUpperCase() !== 'COMPLETED') continue;
     const ver = resultMap[job.job_id]?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? null;
     const pm = metricsOrSample(resultMap[job.job_id]?.metrics, job.job_id, ver);
     tcSummary[job.job_id] = { ...pm.summary, isSample: pm.isSample };
-    if (pm.isSample) anySample = true;
   }
   const completedSummaries = Object.values(tcSummary);
   const best = {
@@ -719,8 +717,34 @@ export default function ExperimentDetailPage() {
     csi:  completedSummaries.length ? Math.max(...completedSummaries.map(s => s.csi  ?? -Infinity)) : null,
   };
 
+  const titleActions = (
+    <button
+      onClick={() => setShowModal(true)}
+      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm flex-shrink-0"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+      새 실험 실행
+    </button>
+  );
+
+  const title = (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => router.push('/experiments')}
+        className="font-semibold hover:text-blue-600 transition-colors"
+      >
+        실험
+      </button>
+      <span className="text-gray-300">&gt;</span>
+      <span className="truncate">{experiment.name}</span>
+    </span>
+  );
+
   return (
-    <Layout>
+    <Layout title={title} titleActions={titleActions}>
       {showModal && (
         <AddTcModal
           onClose={() => setShowModal(false)}
@@ -729,44 +753,15 @@ export default function ExperimentDetailPage() {
         />
       )}
 
-      {/* 실험 헤더 */}
-      <div className="mb-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <button onClick={() => router.push('/experiments')}
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
-                실험 목록
-              </button>
-              <svg className="w-3 h-3 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-            <h1 className="text-xl font-bold text-gray-900">{experiment.name}</h1>
-            {experiment.description && (
-              <p className="text-sm text-gray-500 mt-1">{experiment.description}</p>
-            )}
-          </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm flex-shrink-0"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            새 실험 실행
-          </button>
-        </div>
-      </div>
+      {experiment.description && (
+        <p className="mb-4 text-sm text-gray-500">{experiment.description}</p>
+      )}
 
-      {/* TC 테이블 */}
+      {/* 실험 케이스 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-700">테스트 케이스 (TC) 목록</span>
-            {anySample && (
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">샘플 지표</span>
-            )}
+            <span className="text-sm font-semibold text-gray-700">실험 케이스 목록</span>
           </div>
           {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
         </div>
@@ -774,7 +769,7 @@ export default function ExperimentDetailPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['TC 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+              {['실험 케이스 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -922,7 +917,7 @@ export default function ExperimentDetailPage() {
         )}
 
         <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-400">
-          총 {totalTc}개 TC
+          총 {totalTc}개 실험 케이스
         </div>
       </div>
     </Layout>

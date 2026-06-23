@@ -26,7 +26,7 @@ function calcStatusCounts(tcJobs: TrainingJob[]): StatusCounts {
 }
 
 function StatusSummary({ counts, total }: { counts: StatusCounts; total: number }) {
-  if (total === 0) return <span className="text-xs text-gray-300">TC 없음</span>;
+  if (total === 0) return <span className="text-xs text-gray-300">실험 케이스 없음</span>;
   const items = [
     { key: 'RUNNING',   label: '실행 중', cls: 'text-emerald-700 bg-emerald-50' },
     { key: 'QUEUED',    label: '대기',    cls: 'text-amber-700 bg-amber-50' },
@@ -63,7 +63,7 @@ function NewExperimentEnvModal({
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-900">새 실험 환경</h2>
-            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 TC를 추가할 수 있습니다.</p>
+            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 실험 케이스를 추가할 수 있습니다.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
             <svg viewBox="0 0 16 16" className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -128,7 +128,7 @@ export default function ExperimentsPage() {
     setTcMap(loadExpTcMap());
   }, []);
 
-  // 실 백엔드 작업 목록 (사용자 추가 TC 매칭용)
+  // 실 백엔드 작업 목록 (사용자 추가 실험 케이스 매칭용)
   const fetchJobs = useCallback(() => {
     getExperimentJobs()
       .then(data => setExpJobs(data))
@@ -164,26 +164,26 @@ export default function ExperimentsPage() {
     return new Date(iso).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
+  const titleActions = (
+    <button
+      onClick={() => setShowModal(true)}
+      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
+    >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+      새 실험
+    </button>
+  );
+
   return (
-    <Layout>
+    <Layout titleActions={titleActions}>
       {showModal && (
         <NewExperimentEnvModal
           onClose={() => setShowModal(false)}
           onSave={handleCreateExp}
         />
       )}
-
-      <div className="flex items-center justify-end mb-6">
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          새 실험
-        </button>
-      </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -194,7 +194,7 @@ export default function ExperimentsPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['실험 이름', '설명', 'TC 수', '상태', '최근 실행'].map(h => (
+              {['실험 이름', '설명', '실험 케이스 수', '상태', '최근 실행'].map(h => (
                 <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -203,7 +203,7 @@ export default function ExperimentsPage() {
           </thead>
           <tbody>
             {allExps.map(exp => {
-              // TC = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+              // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
               const userIds  = tcMap[exp.id] ?? [];
               const tcJobs   = expJobs.filter(j => userIds.includes(j.job_id));
               const tcCount  = userIds.length;
