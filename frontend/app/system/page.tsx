@@ -9,8 +9,8 @@ import {
   // getSystemStatus, type SystemStatus,
 } from '@/lib/api';
 
-const POLL_MS      = 3000;
-const HISTORY_MAX  = 40;   // 스파크라인 최대 포인트 수 (3초 × 40 = 약 2분)
+const POLL_MS      = 1000;
+const HISTORY_MAX  = 120;  // 스파크라인 최대 포인트 수 (1초 × 120 = 약 2분)
 
 // ─── 스파크라인 (프론트 메모리 누적 — 새로고침 시 초기화) ─────────────────────
 
@@ -148,7 +148,7 @@ export default function System() {
             <tbody className="divide-y divide-gray-100">
               {gpu.gpus.map(g => (
                 <tr key={g.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs text-gray-600">#{g.id}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-gray-600">GPU {g.id}</td>
                   <td className="px-5 py-3 font-medium text-gray-800">{g.name}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">

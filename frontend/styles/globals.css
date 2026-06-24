@@ -490,3 +490,55 @@ body {
   background: #ef4444;
   color: #ffffff;
 }
+
+/* Uiverse-style back chevron for experiment result page */
+.uiverse-back-chevron {
+  --color: #6b7280;
+  --size: 30px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  cursor: pointer;
+  font-size: var(--size);
+  user-select: none;
+  color: var(--color);
+  fill: currentColor;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.uiverse-back-chevron:hover {
+  --color: #1f2937;
+}
+
+.uiverse-back-chevron .chevron-right {
+  position: absolute;
+  width: 1em;
+  height: 1em;
+  animation: keyframes-back-chevron-rotate .5s backwards;
+  transform: rotate(180deg);
+}
+
+.uiverse-back-chevron input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+@keyframes keyframes-back-chevron-rotate {
+  0% {
+    transform: rotate(0deg);
+    opacity: 0;
+  }
+
+  100% {
+    transform: rotate(180deg);
+  }
+}

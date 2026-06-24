@@ -20,8 +20,24 @@ export interface AscGrid {
 
 // ─── ASC 파서 ─────────────────────────────────────────────────────────────────
 
+function isValidDimension(value: number): boolean {
+  return Number.isInteger(value) && value > 0;
+}
+
+function isValidGrid(grid: AscGrid): boolean {
+  const { ncols, nrows } = grid.header;
+  return isValidDimension(ncols) && isValidDimension(nrows) && grid.data.length >= ncols * nrows;
+}
+
 export function renderToCanvas(canvas: HTMLCanvasElement, grid: AscGrid) {
   const { ncols, nrows, nodata } = grid.header;
+  if (!isValidGrid(grid)) {
+    canvas.width = 1;
+    canvas.height = 1;
+    canvas.getContext('2d')?.clearRect(0, 0, 1, 1);
+    return;
+  }
+
   canvas.width  = ncols;
   canvas.height = nrows;
   const ctx = canvas.getContext('2d');
@@ -56,6 +72,10 @@ export function parseAsc(text: string): AscGrid {
 
   const ncols = raw['ncols'] ?? 0;
   const nrows = raw['nrows'] ?? 0;
+  if (!isValidDimension(ncols) || !isValidDimension(nrows)) {
+    throw new Error('Invalid ASC grid dimensions');
+  }
+
   const nodata = raw['nodata_value'] ?? -9999;
   const data = new Float32Array(ncols * nrows);
   let idx = 0;
@@ -75,6 +95,14 @@ export function parseAsc(text: string): AscGrid {
     },
     data,
   };
+}
+
+function safeParseAsc(text: string, step: number): AscGrid {
+  try {
+    return parseAsc(text);
+  } catch {
+    return _generateMockGrid(step);
+  }
 }
 
 // ─── 모의 격자 생성 ───────────────────────────────────────────────────────────
@@ -355,7 +383,7 @@ export default function AscViewer(props: AscViewerProps) {
   const grids = useMemo<(AscGrid | null)[]>(() => {
     return steps.map(step => {
       const src = ascTexts?.[step] ?? fetchedRef.current[step];
-      if (src !== undefined) return src.length > 0 ? parseAsc(src) : _generateMockGrid(step);
+      if (src !== undefined) return src.length > 0 ? safeParseAsc(src, step) : _generateMockGrid(step);
       if (!ascUrls) return _generateMockGrid(step);
       return null;  // URL 있지만 아직 미로드
     });

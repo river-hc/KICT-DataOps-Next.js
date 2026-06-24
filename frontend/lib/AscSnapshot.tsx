@@ -22,7 +22,12 @@ export default function AscSnapshot({ step, url, label }: AscSnapshotProps) {
     fetch(url)
       .then(r => r.text())
       .then(text => {
-        if (canvasRef.current) renderToCanvas(canvasRef.current, parseAsc(text));
+        if (!canvasRef.current) return;
+        try {
+          renderToCanvas(canvasRef.current, parseAsc(text));
+        } catch {
+          renderToCanvas(canvasRef.current, generateMockGrid(step));
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));

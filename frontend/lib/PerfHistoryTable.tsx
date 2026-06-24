@@ -40,7 +40,7 @@ export default function PerfHistoryTable({
         <table className="w-full text-xs">
           <thead className="bg-gray-50 border-b border-gray-100">
             <tr>
-              {['Run', '실험명', '버전', '모드', '시작 일자', '소요', 'MAE', 'RMSE', 'CSI_10'].map(h => (
+              {['실험명', '버전', '모드', '시작 일자', '소요', 'MAE', 'RMSE', 'CSI_10'].map(h => (
                 <th key={h} className="text-left px-4 py-2.5 text-gray-500 font-semibold whitespace-nowrap">
                   {h}
                 </th>
@@ -50,11 +50,6 @@ export default function PerfHistoryTable({
           <tbody className="divide-y divide-gray-50">
             {data.map(r => (
               <tr key={r.run_id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-2.5">
-                  <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${accentCls}`}>
-                    #{r.run_id}
-                  </span>
-                </td>
                 <td className="px-4 py-2.5 text-gray-700 font-medium max-w-[160px]">
                   <span className="truncate block">{r.name}</span>
                 </td>

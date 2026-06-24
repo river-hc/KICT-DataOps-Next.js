@@ -18,8 +18,16 @@ export function parseMetrics(raw: Record<string, unknown> | null | undefined): P
   if (!raw || Object.keys(raw).length === 0) {
     return { summary: { mae: null, rmse: null, csi: null }, isSample: false };
   }
+  const csiValues = Object.entries(raw)
+    .filter(([key]) => /^csi_\d+$/i.test(key))
+    .map(([, value]) => num(value))
+    .filter((value): value is number => value != null);
+  const csi = num(raw.csi) ?? (csiValues.length
+    ? Math.round((csiValues.reduce((sum, value) => sum + value, 0) / csiValues.length) * 1000) / 1000
+    : null);
+
   return {
-    summary: { mae: num(raw.mae), rmse: num(raw.rmse), csi: num(raw.csi) },
+    summary: { mae: num(raw.mae), rmse: num(raw.rmse), csi },
     isSample: false,
   };
 }
