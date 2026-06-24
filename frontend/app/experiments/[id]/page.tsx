@@ -7,7 +7,7 @@ import Layout from '@/lib/Layout';
 import {
   getExperimentJobs, getModels, getTrainingLogs, getTrainingResult,
   createExperimentJob,
-  fileToBase64, calculateTimestamp, getUsername, displayUsername,
+  fileToBase64, calculateTimestamp, getUsername, displayUsername, formatExecutionName,
   type TrainingJob, type AscFileInput, type ModelVersion,
   type TrainingResult,
 } from '@/lib/api';
@@ -600,7 +600,7 @@ export default function ExperimentDetailPage() {
       mode:                   modelMode,
       forecast_steps:         ALL_STEPS,
       include_preview_image:  true,
-      experiment_name:        null,
+      experiment_name:        formatExecutionName(null, runDt),
       experiment_tags:        null,
       experiment_memo:        memo || null,
       observation_dataset_id: null,
@@ -744,6 +744,7 @@ export default function ExperimentDetailPage() {
               const result     = resultMap[job.job_id];
               const storedMeta = loadTcModelMeta(job.job_id);
               const modelVer   = result?.params.model_version ?? storedMeta?.modelVersion ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+              const executionName = formatExecutionName(job.experiment_name, result?.params.run_datetime);
               const registryModel = models.find(model => model.version === modelVer);
               const registryArch = registryModel?.metrics?.architecture;
               const displayMode = storedMeta?.architecture
@@ -767,7 +768,7 @@ export default function ExperimentDetailPage() {
                 >
                   <td className="px-4 py-3">
                     <div>
-                      <span className="font-semibold text-gray-800 text-sm leading-tight">{job.experiment_name}</span>
+                      <span className="font-semibold text-gray-800 text-sm leading-tight">{executionName}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>

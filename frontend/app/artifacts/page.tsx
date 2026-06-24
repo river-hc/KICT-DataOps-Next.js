@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, type TrainingJob, type Artifact } from '@/lib/api';
+import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, formatExecutionName, type TrainingJob, type Artifact } from '@/lib/api';
 import { loadTcModelMeta } from '@/lib/experimentStore';
 
 function fmtSize(bytes: number | null | undefined): string {
@@ -111,7 +111,7 @@ export default function Artifacts() {
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <p className="text-sm font-medium text-gray-800 truncate">{t.experiment_name}</p>
+                  <p className="text-sm font-medium text-gray-800 truncate">{formatExecutionName(t.experiment_name)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {displayRequester(t)} · {displayMode(t)}
                   </p>

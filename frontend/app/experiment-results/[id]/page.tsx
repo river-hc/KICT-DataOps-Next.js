@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
-import { getTraining, getTrainingResult, getTrainingLogs, getUsername, displayUsername, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { getTraining, getTrainingResult, getTrainingLogs, getUsername, displayUsername, formatExecutionName, type TrainingJob, type TrainingResult } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 import { loadClientExperiments, loadExpTcMap, loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
 import { parseMetrics } from '@/lib/metrics';
@@ -157,6 +157,7 @@ export default function ExperimentResultDetail() {
   const parentExperiment = parentExpId != null
     ? loadClientExperiments().find(exp => exp.id === parentExpId) ?? null
     : null;
+  const executionName = formatExecutionName(job?.experiment_name, detail?.params.run_datetime);
 
   const titlePrefix = (
     <span className="inline-flex items-center gap-2 text-sm text-gray-500">
@@ -201,7 +202,7 @@ export default function ExperimentResultDetail() {
               </svg>
             </button>
             */}
-            <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{job?.experiment_name}</h1>
+            <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{executionName}</h1>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {

@@ -171,6 +171,17 @@ export function displayUsername(value?: string | null): string {
   return (value || '').trim() || '-';
 }
 
+export function formatExecutionName(value?: string | null, runDatetime?: string | null): string {
+  const source = (runDatetime || value || '').trim();
+  const iso = source.match(/(\d{4})-(\d{2})-(\d{2})[T\s]?(\d{2})?:?(\d{2})?/);
+  const compact = source.match(/(20\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+  const match = iso ?? compact;
+  if (!match) return value || '-';
+
+  const [, y, m, d, h = '00', min = '00'] = match;
+  return `${y}-${m}-${d} 강우 실험(${h}시 ${min}분)`;
+}
+
 export function isLoggedIn(): boolean {
   return getToken() !== null;
 }

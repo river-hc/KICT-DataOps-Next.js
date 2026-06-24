@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getTrainingResult, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { getExperimentJobs, getTrainingResult, formatExecutionName, type TrainingJob, type TrainingResult } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 
 const METRIC_META: Record<string, { label: string; max: number; higherBetter: boolean }> = {
@@ -107,7 +107,7 @@ export default function ExperimentResults() {
                     className="cursor-pointer transition-colors hover:bg-blue-50"
                   >
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-xs">
-                      <span className="block truncate">{j.experiment_name}</span>
+                      <span className="block truncate">{formatExecutionName(j.experiment_name, results[j.job_id]?.params.run_datetime)}</span>
                     </td>
                     <td className="px-4 py-3">
                       {modelVersion ? (

@@ -17,7 +17,7 @@ import {
   fmtDateTime, fmtDuration, fmtElapsed, fmtRunDatetime,
   type MockDetail,
 } from './mockData';
-import { displayUsername, type TrainingJob } from './api';
+import { displayUsername, formatExecutionName, type TrainingJob } from './api';
 import PerfHistoryTable from './PerfHistoryTable';
 
 type StatusFilter = 'ALL' | 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
@@ -278,7 +278,7 @@ function JobCard({ job, isSelected, onClick }: { job: TrainingJob; isSelected: b
 
         {/* 실험명 */}
         <p className={`text-sm font-semibold leading-snug line-clamp-2 ${isSelected ? 'text-sky-800' : 'text-gray-800'}`}>
-          {job.experiment_name}
+          {formatExecutionName(job.experiment_name)}
         </p>
 
         {/* 메타 정보 */}
@@ -330,7 +330,7 @@ function DetailPanel({ job, detail }: { job: TrainingJob; detail: MockDetail | n
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <Badge status={job.status} />
         </div>
-        <h2 className="text-lg font-bold text-gray-900 leading-snug">{job.experiment_name}</h2>
+        <h2 className="text-lg font-bold text-gray-900 leading-snug">{formatExecutionName(job.experiment_name)}</h2>
         <p className="text-sm text-gray-400 mt-1">{displayUsername(job.user_name)} · {job.mode}</p>
 
         {s === 'RUNNING' && job.progress != null && (

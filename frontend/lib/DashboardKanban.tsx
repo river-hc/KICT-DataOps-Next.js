@@ -16,7 +16,7 @@ import {
   fmtDateTime, fmtDuration, fmtElapsed, fmtRunDatetime,
   type MockDetail,
 } from './mockData';
-import { displayUsername, type TrainingJob } from './api';
+import { displayUsername, formatExecutionName, type TrainingJob } from './api';
 
 // ─── 상태 섹션 설정 ───────────────────────────────────────────────────────────
 
@@ -383,7 +383,7 @@ function JobAccordion({
         {/* 잡 이름 + 메타 */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-gray-800 truncate leading-snug">
-            {job.experiment_name}
+            {formatExecutionName(job.experiment_name)}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
             {displayUsername(job.user_name)} · {job.mode}

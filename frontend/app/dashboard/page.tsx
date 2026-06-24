@@ -12,6 +12,7 @@ import {
   getSystemStatus,
   getTrainingResult,
   displayUsername,
+  formatExecutionName,
   type TrainingJob,
   type SystemStatus,
 } from '@/lib/api';
@@ -30,11 +31,12 @@ export default function Page() {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabKey = 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
+type TabKey = 'ALL' | 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
+type StatusKey = Exclude<TabKey, 'ALL'>;
 
 // ─── 도넛 차트 ────────────────────────────────────────────────────────────────
 
-const DONUT_SEGS: { key: TabKey; label: string; color: string }[] = [
+const DONUT_SEGS: { key: StatusKey; label: string; color: string }[] = [
   { key: 'RUNNING',   label: '실행 중', color: '#10b981' },
   { key: 'QUEUED',    label: '대기 중', color: '#f59e0b' },
   { key: 'COMPLETED', label: '완료',    color: '#0ea5e9' },
@@ -61,6 +63,7 @@ function isTodayJob(job: TrainingJob): boolean {
 }
 
 function statusMatches(job: TrainingJob, status: TabKey): boolean {
+  if (status === 'ALL') return true;
   const s = job.status.toUpperCase();
   if (status === 'FAILED') return s === 'FAILED' || s === 'CANCELED';
   return s === status;
@@ -103,7 +106,7 @@ function StatusDonutChart({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  const counts: Record<TabKey, number> = {
+  const counts: Record<StatusKey, number> = {
     RUNNING:   jobs.filter(t => t.status === 'RUNNING').length,
     QUEUED:    jobs.filter(t => t.status === 'QUEUED').length,
     COMPLETED: jobs.filter(t => t.status === 'COMPLETED').length,
@@ -153,8 +156,20 @@ function StatusDonutChart({
               />
             );
           })}
-          <text x={CX} y={CY - 10} textAnchor="middle" fontSize="30" fontWeight="800" fill="#111827">{total}</text>
-          <text x={CX} y={CY + 14} textAnchor="middle" fontSize="12" fill="#9ca3af">전체 현황</text>
+          <g
+            role="button"
+            tabIndex={0}
+            onClick={() => onStatusChange('ALL')}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') onStatusChange('ALL');
+            }}
+            className="cursor-pointer outline-none focus:outline-none"
+            style={{ outline: 'none' }}
+          >
+            <circle cx={CX} cy={CY} r={52} fill="transparent" />
+            <text x={CX} y={CY - 10} textAnchor="middle" fontSize="30" fontWeight="800" fill="#111827">{total}</text>
+            <text x={CX} y={CY + 14} textAnchor="middle" fontSize="12" fill="#9ca3af">전체 현황</text>
+          </g>
         </svg>
 
         <div className="w-full grid grid-cols-2 gap-x-3 gap-y-2">
@@ -197,6 +212,7 @@ interface ChartPoint {
 }
 
 const STATUS_LABEL: Record<TabKey, string> = {
+  ALL: '전체',
   RUNNING: '실행 중',
   QUEUED: '대기 중',
   COMPLETED: '완료',
@@ -256,6 +272,7 @@ function TcResultsTable({
               {rows.map(job => {
                 const metrics = metricByJobId.get(job.job_id);
                 const modelVersion = metrics?.sub ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
+                const executionName = formatExecutionName(job.experiment_name);
                 const clickable = ['COMPLETED', 'FAILED', 'CANCELED'].includes(job.status.toUpperCase());
                 return (
                 <tr
@@ -266,7 +283,7 @@ function TcResultsTable({
                   <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.job_id)}</td>
                   <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{displayUsername(job.user_name)}</td>
                   <td className="px-4 py-2.5 max-w-[180px]">
-                    <p className="text-sm font-medium text-gray-800 truncate">{job.experiment_name}</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">{executionName}</p>
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`text-xs font-semibold ${/v3/i.test(modelVersion) ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -295,7 +312,7 @@ function Dashboard() {
   const [loading,      setLoading]      = useState(true);
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
-  const [activeStatus, setActiveStatus] = useState<TabKey>('COMPLETED');
+  const [activeStatus, setActiveStatus] = useState<TabKey>('ALL');
   const [, setProfileTick] = useState(0);
   const prevCompletedIdsRef = useRef('');
 
@@ -355,7 +372,7 @@ function Dashboard() {
           const parsed = metricsOrSample(result?.metrics, job.job_id, modelVersion).summary;
           pts.push({
             label,
-            name:   job.experiment_name,
+            name:   formatExecutionName(job.experiment_name, result?.params.run_datetime),
             sub:    modelVersion ?? '-',
             job_id: job.job_id,
             mae:    parsed.mae ?? 0,
