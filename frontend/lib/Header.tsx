@@ -7,7 +7,7 @@ import UserPopup from './UserPopup';
 const ROUTE_TITLES: [string, string][] = [
   ['/dashboard',          '대시보드'],
   ['/experiments',        '실험'],
-  ['/experiment-results', '테스트 케이스 결과'],
+  ['/experiment-results', '실행 결과'],
   ['/training-results',   '학습 결과'],
   ['/trainings',          '학습'],
   ['/artifacts',          '아티팩트'],

@@ -7,7 +7,7 @@ import Layout from '@/lib/Layout';
 import {
   getExperimentJobs, getModels, getTrainingLogs, getTrainingResult,
   createExperimentJob,
-  fileToBase64, calculateTimestamp, getUsername,
+  fileToBase64, calculateTimestamp, getUsername, displayUsername,
   type TrainingJob, type AscFileInput, type ModelVersion,
   type TrainingResult,
 } from '@/lib/api';
@@ -16,13 +16,14 @@ import {
   loadTcModelMeta, saveTcModelMeta,
   type ClientExperiment,
 } from '@/lib/experimentStore';
-import { applyStoredModelStatuses } from '@/lib/modelStore';
+import { mergeRegisteredModels } from '@/lib/modelStore';
 import { metricsOrSample } from '@/lib/metrics';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
 const POLL_MS   = 3000;
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
+const DEFAULT_OBSERVATION_DATASET_DIR = '/data/observations/default';
 
 const FALLBACK_MODELS: ModelVersion[] = [
   { id: 1, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI', version: 'Ver.3',
@@ -62,6 +63,18 @@ function toApiRunDatetime(compact: string): string {
   return `${compact.slice(0,4)}-${compact.slice(4,6)}-${compact.slice(6,8)}T${compact.slice(8,10)}:${compact.slice(10,12)}:00`;
 }
 
+function addMinutesToCompactDt(compact: string, minutes: number): string {
+  const date = new Date(
+    Number(compact.slice(0, 4)),
+    Number(compact.slice(4, 6)) - 1,
+    Number(compact.slice(6, 8)),
+    Number(compact.slice(8, 10)),
+    Number(compact.slice(10, 12)) + minutes,
+  );
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}${p(date.getHours())}${p(date.getMinutes())}`;
+}
+
 function getCompactDtFromFilename(filename: string | null): string | null {
   if (!filename) return null;
   const m = filename.match(/(20\d{10})/);
@@ -82,6 +95,14 @@ function getFolderNameFromFiles(files: File[]): string {
   return relativePath.includes('/') ? relativePath.split('/')[0] : 'ASC 파일 묶음';
 }
 
+function toBackendModelVersion(version: string): string {
+  const normalized = version.trim().toLowerCase().replace(/\s+/g, '');
+  if (normalized === 'ver.1' || normalized === 'ver1' || normalized === 'v1') return 'ver1';
+  if (normalized === 'ver.2' || normalized === 'ver2' || normalized === 'v2') return 'v2';
+  if (normalized === 'ver.3' || normalized === 'ver3' || normalized === 'v3') return 'v3';
+  return version;
+}
+
 function mapAscFiles(files: File[]): FormFiles {
   const usable = files
     .filter(file => /\.(asc|txt|csv|dat)$/i.test(file.name))
@@ -93,6 +114,32 @@ function mapAscFiles(files: File[]): FormFiles {
       if (!aDt && bDt) return 1;
       return getFilePath(a).localeCompare(getFilePath(b));
     });
+
+  const byTimestamp = new Map<string, File>();
+  for (const file of usable) {
+    const dt = getCompactDtFromFilename(file.name);
+    if (dt && !byTimestamp.has(dt)) byTimestamp.set(dt, file);
+  }
+
+  const timestamps = Array.from(byTimestamp.keys()).sort();
+  for (let i = timestamps.length - 1; i >= 0; i -= 1) {
+    const t3Dt = timestamps[i];
+    const t0 = byTimestamp.get(addMinutesToCompactDt(t3Dt, -30));
+    const t1 = byTimestamp.get(addMinutesToCompactDt(t3Dt, -20));
+    const t2 = byTimestamp.get(addMinutesToCompactDt(t3Dt, -10));
+    const t3 = byTimestamp.get(t3Dt);
+    const hasAllTargets = ALL_STEPS.every(step => byTimestamp.has(addMinutesToCompactDt(t3Dt, step)));
+
+    if (t0 && t1 && t2 && t3 && hasAllTargets) {
+      return {
+        t0: { file: t0, name: t0.name },
+        t1: { file: t1, name: t1.name },
+        t2: { file: t2, name: t2.name },
+        t3: { file: t3, name: t3.name },
+      };
+    }
+  }
+
   const latest = usable.slice(-4);
   return {
     t0: latest[0] ? { file: latest[0], name: latest[0].name } : EMPTY_FILE,
@@ -285,99 +332,13 @@ function AscFolderSlot({ state, onChange }: {
       )}
 
       {state.files.length > 0 && mappedCount < 4 && (
-        <p className="text-[11px] text-red-500 mt-2">실험 실행에는 최소 4개의 ASC 파일이 필요합니다.</p>
+        <p className="text-[11px] text-red-500 mt-2">실행에는 최소 4개의 ASC 파일이 필요합니다.</p>
       )}
     </div>
   );
 }
 
-function DirectorySlot({ label, placeholder, value, onChange }: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (path: string) => void;
-}) {
-  const ref = useRef<HTMLInputElement | null>(null);
-
-  const bindDirectoryInput = (node: HTMLInputElement | null) => {
-    ref.current = node;
-    node?.setAttribute('webkitdirectory', '');
-    node?.setAttribute('directory', '');
-  };
-
-  const handleDirectorySelect = (fileList: FileList | null) => {
-    const first = fileList?.[0] as (File & { webkitRelativePath?: string }) | undefined;
-    if (!first) return;
-    const relativePath = first.webkitRelativePath ?? '';
-    const selectedFolder = relativePath.split('/')[0] || first.name;
-    onChange(selectedFolder);
-  };
-
-  const openPicker = async () => {
-    const picker = (window as Window & {
-      showDirectoryPicker?: () => Promise<{ name: string }>;
-    }).showDirectoryPicker;
-
-    if (picker) {
-      try {
-        const handle = await picker();
-        onChange(handle.name);
-        return;
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-      }
-    }
-
-    ref.current?.click();
-  };
-
-  return (
-    <div
-      onClick={openPicker}
-      className={`relative flex items-center gap-3 border-2 border-dashed rounded-xl p-4 cursor-pointer transition-colors ${
-        value ? 'border-blue-300 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50/60'
-      }`}
-    >
-      <input
-        ref={bindDirectoryInput}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={e => {
-          handleDirectorySelect(e.target.files);
-          e.target.value = '';
-        }}
-      />
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
-        value ? 'bg-blue-100 text-blue-600' : 'bg-white text-gray-300'
-      }`}>
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-        </svg>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-gray-700">{label}</p>
-        <p className={`text-xs mt-1 truncate ${value ? 'font-mono text-blue-700 font-semibold' : 'text-gray-400'}`}>
-          {value || placeholder}
-        </p>
-      </div>
-      {value && (
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); onChange(''); }}
-          className="p-1.5 rounded-md text-blue-400 hover:text-blue-700 hover:bg-blue-100 flex-shrink-0"
-          aria-label="선택 해제"
-        >
-          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-            <path d="M2 2l12 12M14 2L2 14" />
-          </svg>
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── 실험 케이스 추가 모달 (NewExperimentModal) ───────────────────────────────
+// ─── 실행 추가 모달 (NewExperimentModal) ───────────────────────────────
 
 function AddTcModal({
   onClose, onSubmit, models,
@@ -392,18 +353,21 @@ function AddTcModal({
   ) => Promise<void>;
   models: ModelVersion[];
 }) {
-  const productionModel = models[0] ?? null;
-  const productionArch = productionModel?.metrics?.architecture as string | undefined;
+  const [selectedModelId,     setSelectedModelId]     = useState<number | null>(models[0]?.id ?? null);
   const [ascFolder,           setAscFolder]           = useState<AscFolderState>(EMPTY_ASC_FOLDER);
   const [memo,                setMemo]                = useState('');
   const [submitting,          setSubmitting]          = useState(false);
   const [error,               setError]               = useState<string | null>(null);
-  const [obsDatasetDir,       setObsDatasetDir]       = useState('');
-  const [outputDir,           setOutputDir]           = useState('');
+  const selectedModel = models.find(model => model.id === selectedModelId) ?? null;
+  const selectedArch = selectedModel?.metrics?.architecture as string | undefined;
+
+  useEffect(() => {
+    if (selectedModelId == null && models[0]) setSelectedModelId(models[0].id);
+  }, [selectedModelId, models]);
 
   const handleSubmit = async () => {
-    if (!productionModel) {
-      setError('운영 상태인 모델 버전이 없습니다.');
+    if (!selectedModel) {
+      setError('모델 버전을 선택해주세요.');
       return;
     }
     if (Object.values(ascFolder.mappedFiles).some(file => !file.file)) {
@@ -414,10 +378,10 @@ function AddTcModal({
     try {
       await onSubmit(
         ascFolder.mappedFiles,
-        productionModel.version,
+        selectedModel.version,
         memo,
-        obsDatasetDir.trim() || null,
-        outputDir.trim() || null,
+        DEFAULT_OBSERVATION_DATASET_DIR,
+        null,
       );
       onClose();
     }
@@ -431,7 +395,7 @@ function AddTcModal({
       <div className="relative z-10 w-full max-w-2xl mx-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">새 실험 실행</h2>
+            <h2 className="text-lg font-bold text-gray-900">새 실행</h2>
             <p className="text-xs text-gray-400 mt-0.5">QPF 모델로 강우장을 예측합니다. 선행시간 10~180분 전체 자동 계산.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
@@ -442,23 +406,29 @@ function AddTcModal({
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">운영 모델</p>
-              {productionModel ? (
-                <p className="text-sm font-semibold text-gray-800 mt-1 truncate">
-                  {productionModel.model_name} · {productionModel.version}
-                  {productionArch && <span className="ml-1 text-xs text-gray-400">({productionArch})</span>}
-                </p>
+          <div>
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">모델 버전</label>
+            <select
+              value={selectedModelId ?? ''}
+              onChange={e => setSelectedModelId(e.target.value ? Number(e.target.value) : null)}
+              disabled={models.length === 0}
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              {models.length === 0 ? (
+                <option value="">등록된 모델 버전 없음</option>
               ) : (
-                <p className="text-sm font-semibold text-red-500 mt-1">운영 모델 없음</p>
+                models.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.model_name} · {model.version}
+                  </option>
+                ))
               )}
-            </div>
-            {productionModel && (
-              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-full px-2 py-1">production</span>
-            )}
-            {!productionModel && (
-              <p className="text-[11px] text-red-500 mt-1.5">모델 레지스트리에서 운영 모델을 먼저 선택해주세요.</p>
+            </select>
+            {selectedModel && (
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                선택 모델: {selectedModel.model_name} · {selectedModel.version}
+                {selectedArch && <span> ({selectedArch})</span>}
+              </p>
             )}
           </div>
 
@@ -476,27 +446,6 @@ function AddTcModal({
             <p className="text-[11px] text-gray-400 mt-2">폴더 안 파일명 시각 기준으로 최근 4개 파일을 T-30/T-20/T-10/T에 자동 매핑합니다.</p>
           </div>
 
-          <div>
-            <DirectorySlot
-              label="비교 데이터셋 경로"
-              placeholder="폴더 선택"
-              value={obsDatasetDir}
-              onChange={setObsDatasetDir}
-            />
-            <p className="text-[11px] text-gray-400 mt-1.5">
-              운용 시점과 forecast step 기준으로 이 경로의 관측 파일을 매칭합니다.
-            </p>
-          </div>
-
-          <div>
-            <DirectorySlot
-              label="출력 경로"
-              placeholder="출력 폴더"
-              value={outputDir}
-              onChange={setOutputDir}
-            />
-          </div>
-
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-gray-600">메모</label>
             <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={3}
@@ -508,10 +457,10 @@ function AddTcModal({
         <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">{error && <p className="text-xs text-red-500">{error}</p>}</div>
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0">취소</button>
-          <button onClick={handleSubmit} disabled={submitting || !productionModel}
+          <button onClick={handleSubmit} disabled={submitting || !selectedModel}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 flex-shrink-0">
             {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-            새 실험 실행
+            새 실행
           </button>
         </div>
       </div>
@@ -528,7 +477,7 @@ export default function ExperimentDetailPage() {
 
   // 실험 환경 조회 (클라이언트 localStorage 기준)
   const [experiment, setExperiment] = useState<ClientExperiment | null | undefined>(undefined);
-  // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+  // 실행 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
   const [userTcIds,  setUserTcIds]  = useState<number[]>([]);
   const [realJobs,   setRealJobs]   = useState<TrainingJob[]>([]);
   const [resultMap,  setResultMap]  = useState<Record<number, TrainingResult>>({});
@@ -547,7 +496,7 @@ export default function ExperimentDetailPage() {
     if (found) setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
 
-  // 실험 케이스 Map 변경 반영 (실험 케이스 추가 후)
+  // 실행 Map 변경 반영 (실행 추가 후)
   const refreshTcIds = useCallback(() => {
     setUserTcIds(getUserTcJobIds(expId));
   }, [expId]);
@@ -562,10 +511,10 @@ export default function ExperimentDetailPage() {
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job
+  // 실행 = 이 실험에만 매핑된 실 백엔드 job
   const tcJobs = realJobs.filter(j => userTcIds.includes(j.job_id));
 
-  // 완료된 실험 케이스의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
+  // 완료된 실행의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
   useEffect(() => {
     const completed = tcJobs.filter(j => j.status.toUpperCase() === 'COMPLETED' && !(j.job_id in resultMap));
     if (completed.length === 0) return;
@@ -576,7 +525,7 @@ export default function ExperimentDetailPage() {
     });
   }, [tcJobs, resultMap]);
 
-  // 활성 작업 폴링 (사용자 추가 실험 케이스가 실행 중일 때만)
+  // 활성 작업 폴링 (사용자 추가 실행이 실행 중일 때만)
   useEffect(() => {
     const hasActive = realJobs
       .filter(j => userTcIds.includes(j.job_id))
@@ -589,11 +538,11 @@ export default function ExperimentDetailPage() {
   // 모델 목록 로드
   useEffect(() => {
     getModels()
-      .then(data => setModels(applyStoredModelStatuses(data.length ? data : FALLBACK_MODELS)))
-      .catch(() => setModels(applyStoredModelStatuses(FALLBACK_MODELS)));
+      .then(data => setModels(mergeRegisteredModels(data.length ? data : FALLBACK_MODELS)))
+      .catch(() => setModels(mergeRegisteredModels(FALLBACK_MODELS)));
   }, []);
 
-  // 실행 중 실험 케이스 로그
+  // 실행 중 로그
   const selectedJob       = tcJobs.find(j => j.job_id === selectedId) ?? null;
   const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
 
@@ -619,7 +568,7 @@ export default function ExperimentDetailPage() {
     return () => clearInterval(id);
   }, [selectedId, isSelectedRunning]);
 
-  // 실험 케이스 제출
+  // 실행 제출
   const handleSubmitTc = async (
     files: FormFiles,
     modelVersion: string,
@@ -635,6 +584,10 @@ export default function ExperimentDetailPage() {
       : selectedModel?.metrics?.architecture === 'single'
         ? 'single'
         : null;
+    const backendModelVersion = toBackendModelVersion(modelVersion);
+    const modelMode = backendModelVersion === 'ver1' || backendModelVersion === 'ver1_tflite'
+      ? 'single'
+      : architecture ?? 'multi';
     const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
       fs.file
         ? { filename: fs.name, timestamp: calculateTimestamp(runDt, offset), file_data: await fileToBase64(fs.file) }
@@ -643,7 +596,8 @@ export default function ExperimentDetailPage() {
     const result = await createExperimentJob({
       user_name:               requester,
       run_datetime:           toApiRunDatetime(runDt),
-      model_version:          modelVersion,
+      model_version:          backendModelVersion,
+      mode:                   modelMode,
       forecast_steps:         ALL_STEPS,
       include_preview_image:  true,
       experiment_name:        null,
@@ -660,12 +614,12 @@ export default function ExperimentDetailPage() {
       },
     });
 
-    // 실험 케이스 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
+    // 실행 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
     // 메모도 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
     if (result?.job_id) {
       addTcToExpMap(expId, result.job_id);
       if (memo) saveTcMemo(result.job_id, memo);
-      saveTcModelMeta(result.job_id, { modelVersion, architecture, requester });
+      saveTcModelMeta(result.job_id, { modelVersion, architecture: modelMode, requester });
       refreshTcIds();
     }
     fetchJobs();
@@ -700,9 +654,9 @@ export default function ExperimentDetailPage() {
   }
 
   const totalTc = tcJobs.length;
-  const operatingModels = models.filter(model => (model.status ?? '').toUpperCase() === 'SELECTED');
+  const selectableModels = models.filter(model => !['QUEUED', 'RUNNING'].includes((model.status ?? '').toUpperCase()));
 
-  // 완료 실험 케이스별 요약 지표 + 버전 비교용 최고값 계산
+  // 완료 실행별 요약 지표 + 버전 비교용 최고값 계산
   const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
   for (const job of tcJobs) {
     if (job.status.toUpperCase() !== 'COMPLETED') continue;
@@ -725,31 +679,37 @@ export default function ExperimentDetailPage() {
       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
       </svg>
-      새 실험 실행
+      새 실행
     </button>
   );
 
-  const title = (
-    <span className="inline-flex items-center gap-2">
+  const titlePrefix = (
+    <span className="inline-flex items-center gap-2 text-sm text-gray-500">
       <button
         type="button"
         onClick={() => router.push('/experiments')}
-        className="font-semibold hover:text-blue-600 transition-colors"
+        className="font-semibold text-gray-600 hover:text-blue-600 transition-colors"
       >
         실험
       </button>
       <span className="text-gray-300">&gt;</span>
-      <span className="truncate">{experiment.name}</span>
+      <Link
+        href={`/experiments/${experiment.id}`}
+        className="max-w-[48rem] truncate font-medium text-gray-700 hover:text-blue-600 transition-colors"
+      >
+        {experiment.name}
+      </Link>
+      <span className="text-gray-300">&gt;</span>
     </span>
   );
 
   return (
-    <Layout title={title} titleActions={titleActions}>
+    <Layout title="실행" titleActions={titleActions} titlePrefix={titlePrefix}>
       {showModal && (
         <AddTcModal
           onClose={() => setShowModal(false)}
           onSubmit={handleSubmitTc}
-          models={operatingModels}
+          models={selectableModels}
         />
       )}
 
@@ -757,11 +717,11 @@ export default function ExperimentDetailPage() {
         <p className="mb-4 text-sm text-gray-500">{experiment.description}</p>
       )}
 
-      {/* 실험 케이스 테이블 */}
+      {/* 실행 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-700">실험 케이스 목록</span>
+            <span className="text-sm font-semibold text-gray-700">실행 목록</span>
           </div>
           {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
         </div>
@@ -769,7 +729,7 @@ export default function ExperimentDetailPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['실험 케이스 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+              {['실행 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -789,8 +749,10 @@ export default function ExperimentDetailPage() {
               const displayMode = storedMeta?.architecture
                 ?? (registryArch === 'multi' || registryArch === 'single' ? registryArch : null)
                 ?? job.mode;
-              const displayRequester = storedMeta?.requester
-                ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? 'admin');
+              const displayRequester = displayUsername(
+                storedMeta?.requester
+                  ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? null),
+              );
               const sum        = tcSummary[job.job_id];
               const fmtCell = (v: number | null | undefined, isBest: boolean) =>
                 v == null
@@ -805,18 +767,7 @@ export default function ExperimentDetailPage() {
                 >
                   <td className="px-4 py-3">
                     <div>
-                      {(s === 'COMPLETED' || s === 'FAILED' || s === 'CANCELED') ? (
-                        <Link
-                          href={`/experiment-results/${job.job_id}`}
-                          onClick={e => e.stopPropagation()}
-                          className="font-semibold text-blue-600 hover:underline text-sm leading-tight"
-                        >
-                          {job.experiment_name}
-                        </Link>
-                      ) : (
-                        <span className="font-semibold text-gray-800 text-sm leading-tight">{job.experiment_name}</span>
-                      )}
-                      <p className="text-[11px] text-gray-400 mt-0.5">#{job.job_id} · {displayMode}</p>
+                      <span className="font-semibold text-gray-800 text-sm leading-tight">{job.experiment_name}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
@@ -852,7 +803,6 @@ export default function ExperimentDetailPage() {
                         { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
                         { label: '요청자',    value: displayRequester },
                         { label: '모드',      value: displayMode },
-                        ...(job.run_id != null ? [{ label: 'Run ID', value: `#${job.run_id}` }] : []),
                       ].map(row => (
                         <div key={row.label}>
                           <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{row.label}</p>
@@ -885,7 +835,7 @@ export default function ExperimentDetailPage() {
                       <div className="mt-3 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
                         <div className="px-5 py-3 border-b border-gray-700 flex items-center gap-3">
                           <span className="text-sm font-semibold text-gray-200 flex-1">
-                            로그 — Job #{job.job_id}
+                            로그
                             <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 font-normal">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                               실시간
@@ -912,12 +862,12 @@ export default function ExperimentDetailPage() {
 
         {tcJobs.length === 0 && !loading && (
           <div className="py-16 text-center text-gray-400 text-sm">
-            {totalTc === 0 ? '실험 이력이 없습니다. 새 실험 실행 버튼으로 검증을 시작하세요.' : '로드 중...'}
+            {totalTc === 0 ? '실험 이력이 없습니다. 새 실행 버튼으로 검증을 시작하세요.' : '로드 중...'}
           </div>
         )}
 
         <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-400">
-          총 {totalTc}개 실험 케이스
+          총 {totalTc}개 실행
         </div>
       </div>
     </Layout>

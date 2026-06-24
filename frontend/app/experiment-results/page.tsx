@@ -87,7 +87,7 @@ export default function ExperimentResults() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                {['#', '실험명', '모델', '모드', '완료 시각', '소요 시간', 'MAE', 'RMSE', 'CSI 10', 'Run'].map(h => (
+                {['실험명', '모델', '모드', '완료 시각', '소요 시간', 'MAE', 'RMSE', 'CSI 10'].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -106,11 +106,6 @@ export default function ExperimentResults() {
                     onClick={() => router.push(`/experiment-results/${j.job_id}`)}
                     className="cursor-pointer transition-colors hover:bg-blue-50"
                   >
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                        #{j.job_id}
-                      </span>
-                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-xs">
                       <span className="block truncate">{j.experiment_name}</span>
                     </td>
@@ -142,11 +137,6 @@ export default function ExperimentResults() {
                         </td>
                       );
                     })}
-                    <td className="px-4 py-3">
-                      {j.run_id != null
-                        ? <span className="font-mono text-xs bg-violet-50 text-violet-700 px-1.5 py-0.5 rounded">#{j.run_id}</span>
-                        : <span className="text-gray-300 text-xs">-</span>}
-                    </td>
                   </tr>
                 );
               })}

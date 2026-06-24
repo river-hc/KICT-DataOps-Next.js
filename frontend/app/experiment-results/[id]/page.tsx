@@ -3,12 +3,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
-import { getTraining, getTrainingResult, getTrainingLogs, getUsername, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { getTraining, getTrainingResult, getTrainingLogs, getUsername, displayUsername, type TrainingJob, type TrainingResult } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 import { loadClientExperiments, loadExpTcMap, loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
-import { metricsOrSample } from '@/lib/metrics';
+import { parseMetrics } from '@/lib/metrics';
 
 // ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
 // ─── 부모 실험 찾기 ───────────────────────────────────────────────────────────
 
 function findParentExperimentId(jobId: number): number | null {
-  // 사용자 추가 실험 케이스 매핑(localStorage)을 우선 — 가장 권위 있는 소스
+  // 사용자 추가 실행 매핑(localStorage)을 우선 — 가장 권위 있는 소스
   const tcMap = loadExpTcMap();
   for (const [expId, jobIds] of Object.entries(tcMap)) {
     if ((jobIds as number[]).includes(jobId)) return Number(expId);
@@ -97,8 +98,10 @@ export default function ExperimentResultDetail() {
 
   const steps = detail?.params.forecast_steps ?? [];
   const storedMeta = jobId != null ? loadTcModelMeta(jobId) : null;
-  const displayRequester = storedMeta?.requester
-    ?? (job?.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? 'admin');
+  const displayRequester = displayUsername(
+    storedMeta?.requester
+      ?? (job?.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? null),
+  );
 
   const goPrev = useCallback(() => {
     setIsPlaying(false);
@@ -143,32 +146,63 @@ export default function ExperimentResultDetail() {
     ? stepMin === stepMax ? `${stepMin}분` : `${stepMin}분 ~ ${stepMax}분`
     : '-';
 
-  // 성능 지표 — 전체 단일 값(MAE/RMSE/CSI)
-  const pm             = metricsOrSample(detail?.metrics, jobId ?? 0, detail?.params.model_version ?? null);
+  // 성능 지표 — 백엔드가 출력 경로의 지표 파일에서 추출해 내려준 값만 표시
+  const pm             = parseMetrics(detail?.metrics);
   const metricSources  = detail?.metric_sources;
   const matchedCount   = metricSources?.matched_targets ? Object.keys(metricSources.matched_targets).length : 0;
+  const metricFilePath  = metricSources?.metrics_file_path ?? null;
+  const hasMetricValues = pm.summary.mae != null || pm.summary.rmse != null || pm.summary.csi != null;
   const ascUrls        = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0 ? detail.asc_urls : undefined;
 
-  const backHref = parentExpId ? `/experiments/${parentExpId}` : '/experiments';
+  const parentExperiment = parentExpId != null
+    ? loadClientExperiments().find(exp => exp.id === parentExpId) ?? null
+    : null;
+
+  const titlePrefix = (
+    <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+      {parentExperiment ? (
+        <Link
+          href={`/experiments/${parentExperiment.id}`}
+          className="max-w-[48rem] truncate font-medium text-gray-700 hover:text-blue-600 transition-colors"
+        >
+          {parentExperiment.name}
+        </Link>
+      ) : (
+        <span className="font-medium text-gray-700">-</span>
+      )}
+      <span className="text-gray-300">&gt;</span>
+      <Link
+        href={parentExperiment ? `/experiments/${parentExperiment.id}` : '/experiments'}
+        className="font-semibold text-gray-600 hover:text-blue-600 transition-colors"
+      >
+        실행
+      </Link>
+      <span className="text-gray-300">&gt;</span>
+    </span>
+  );
 
   return (
-    <Layout>
+    <Layout title="실행 결과" titlePrefix={titlePrefix}>
       <div className="h-full flex flex-col min-h-0">
-      {/* 뒤로가기 + 헤더 */}
+      {/* 헤더 */}
       <div className="mb-3 flex-shrink-0">
-        <button
-          aria-label="실험 케이스 목록으로 돌아가기"
-          title="실험 케이스 목록으로 돌아가기"
-          onClick={() => router.push(backHref)}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800 transition-colors mb-2"
-        >
-          <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 4l-5 4 5 4" />
-          </svg>
-        </button>
-
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{job?.experiment_name}</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            {/*
+            <button
+              aria-label="실행 목록으로 돌아가기"
+              title="실행 목록으로 돌아가기"
+              onClick={() => router.push(parentExpId ? `/experiments/${parentExpId}` : '/experiments')}
+              className="uiverse-back-chevron flex-shrink-0"
+            >
+              <input type="checkbox" checked readOnly aria-hidden="true" tabIndex={-1} />
+              <svg className="chevron-right" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+              </svg>
+            </button>
+            */}
+            <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{job?.experiment_name}</h1>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
               const s = (job?.status ?? 'COMPLETED').toUpperCase();
@@ -182,11 +216,6 @@ export default function ExperimentResultDetail() {
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${cls}`}>{s}</span>
               );
             })()}
-            {job?.run_id != null && (
-              <span className="font-mono text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2 py-0.5 rounded">
-                Run #{job.run_id}
-              </span>
-            )}
             {detail?.params.model_version && (
               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                 detail.params.model_version === 'v3'
@@ -305,11 +334,15 @@ export default function ExperimentResultDetail() {
               <div className="flex items-center justify-between mb-2 min-w-0">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">성능 지표</p>
               </div>
-              <div className="space-y-0.5">
-                {pm.summary.mae  != null && <MetricBar metricKey="mae"  value={pm.summary.mae} />}
-                {pm.summary.rmse != null && <MetricBar metricKey="rmse" value={pm.summary.rmse} />}
-                {pm.summary.csi  != null && <MetricBar metricKey="csi"  value={pm.summary.csi} />}
-              </div>
+              {hasMetricValues ? (
+                <div className="space-y-0.5">
+                  {pm.summary.mae  != null && <MetricBar metricKey="mae"  value={pm.summary.mae} />}
+                  {pm.summary.rmse != null && <MetricBar metricKey="rmse" value={pm.summary.rmse} />}
+                  {pm.summary.csi  != null && <MetricBar metricKey="csi"  value={pm.summary.csi} />}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-300 leading-relaxed">지표 파일 생성 대기</p>
+              )}
             </div>
 
             {/* 모델 설정 */}
@@ -349,6 +382,12 @@ export default function ExperimentResultDetail() {
                     </span>
                   </div>
                   <div className="min-w-0">
+                    <span className="text-xs text-gray-500 block mb-0.5">지표 파일 경로</span>
+                    <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
+                      {metricFilePath ?? '-'}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">매칭 파일</span>
                     <span className="text-xs font-semibold text-emerald-700 block">{matchedCount}개</span>
                   </div>
@@ -366,7 +405,7 @@ export default function ExperimentResultDetail() {
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <p className="text-xs text-gray-400 text-center">비교 데이터 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">실험 케이스 등록 시 경로 미지정</p>
+                  <p className="text-[11px] text-gray-300 text-center">실행 등록 시 경로 미지정</p>
                 </div>
               )}
             </div>

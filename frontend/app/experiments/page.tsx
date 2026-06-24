@@ -26,7 +26,7 @@ function calcStatusCounts(tcJobs: TrainingJob[]): StatusCounts {
 }
 
 function StatusSummary({ counts, total }: { counts: StatusCounts; total: number }) {
-  if (total === 0) return <span className="text-xs text-gray-300">실험 케이스 없음</span>;
+  if (total === 0) return <span className="text-xs text-gray-300">실행 없음</span>;
   const items = [
     { key: 'RUNNING',   label: '실행 중', cls: 'text-emerald-700 bg-emerald-50' },
     { key: 'QUEUED',    label: '대기',    cls: 'text-amber-700 bg-amber-50' },
@@ -63,7 +63,7 @@ function NewExperimentEnvModal({
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-900">새 실험 환경</h2>
-            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 실험 케이스를 추가할 수 있습니다.</p>
+            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 실행을 추가할 수 있습니다.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
             <svg viewBox="0 0 16 16" className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -128,7 +128,7 @@ export default function ExperimentsPage() {
     setTcMap(loadExpTcMap());
   }, []);
 
-  // 실 백엔드 작업 목록 (사용자 추가 실험 케이스 매칭용)
+  // 실 백엔드 작업 목록 (사용자 추가 실행 매칭용)
   const fetchJobs = useCallback(() => {
     getExperimentJobs()
       .then(data => setExpJobs(data))
@@ -194,7 +194,7 @@ export default function ExperimentsPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['실험 이름', '설명', '실험 케이스 수', '상태', '최근 실행'].map(h => (
+              {['실험 이름', '설명', '실행 수', '상태', '최근 실행'].map(h => (
                 <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -203,10 +203,10 @@ export default function ExperimentsPage() {
           </thead>
           <tbody>
             {allExps.map(exp => {
-              // 실험 케이스 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
+              // 실행 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
               const userIds  = tcMap[exp.id] ?? [];
               const tcJobs   = expJobs.filter(j => userIds.includes(j.job_id));
-              const tcCount  = userIds.length;
+              const tcCount  = tcJobs.length;
               const counts   = calcStatusCounts(tcJobs);
               const latestTs = tcJobs.reduce<string | null>((acc, j) => {
                 const ts = j.finished_at ?? j.started_at ?? j.created_at;
@@ -226,7 +226,7 @@ export default function ExperimentsPage() {
                     <span className="line-clamp-1">{exp.description || '-'}</span>
                   </td>
                   <td className="px-5 py-3">
-                    <span className="font-mono text-sm text-gray-700">{tcCount}개</span>
+                    <span className="font-mono text-sm text-gray-700">{tcCount > 0 ? `${tcCount}개` : '-'}</span>
                   </td>
                   <td className="px-5 py-3">
                     <StatusSummary counts={counts} total={tcCount} />

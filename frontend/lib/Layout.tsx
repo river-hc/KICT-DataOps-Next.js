@@ -95,11 +95,13 @@ interface LayoutProps {
   title?: ReactNode;
   /** 페이지 타이틀 카드 우측 액션 영역 */
   titleActions?: ReactNode;
+  /** 페이지 타이틀 카드 바깥 상단 영역 */
+  titlePrefix?: ReactNode;
 }
 
 // ─── 사이드바 레이아웃 (포트 3000·3001) ──────────────────────────────────────
 
-function LayoutSidebar({ children, fullHeight = false, title, titleActions }: LayoutProps) {
+function LayoutSidebar({ children, fullHeight = false, title, titleActions, titlePrefix }: LayoutProps) {
   const pathname = usePathname();
   const [open, setOpen]           = useState(true);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({ '학습': true });
@@ -134,9 +136,14 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions }: La
         <div className="h-16 flex-shrink-0 flex items-center px-4 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
           {open && (
             <div className="flex-1 min-w-0 flex items-center">
-              <span className="text-[24px] leading-8 font-semibold whitespace-nowrap" style={{ color: 'var(--logo-text)' }}>
+              <Link
+                href="/dashboard"
+                className="text-[24px] leading-8 font-semibold whitespace-nowrap transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 rounded"
+                style={{ color: 'var(--logo-text)' }}
+                aria-label="대시보드로 이동"
+              >
                 KICT DataOps
-              </span>
+              </Link>
             </div>
           )}
         </div>
@@ -270,21 +277,28 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions }: La
         {/* 바디 — 콘텐츠가 모서리에 붙지 않도록 모든 페이지 공통 p-8 여백 */}
         <main className={`flex-1 min-h-0 ${fullHeight ? 'overflow-hidden' : 'p-8 overflow-auto'}`}>
           {fullHeight ? children : (
-            <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
-                <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
-                  {titleNode}
-                </h1>
-                {titleActions && (
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    {titleActions}
-                  </div>
-                )}
+            <>
+              {titlePrefix && (
+                <div className="mb-2">
+                  {titlePrefix}
+                </div>
+              )}
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
+                  <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
+                    {titleNode}
+                  </h1>
+                  {titleActions && (
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      {titleActions}
+                    </div>
+                  )}
+                </div>
+                <div className="p-5">
+                  {children}
+                </div>
               </div>
-              <div className="p-5">
-                {children}
-              </div>
-            </div>
+            </>
           )}
         </main>
 
@@ -296,6 +310,10 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions }: La
   );
 }
 
-export default function Layout({ children, fullHeight = false, title, titleActions }: LayoutProps) {
-  return <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions}>{children}</LayoutSidebar>;
+export default function Layout({ children, fullHeight = false, title, titleActions, titlePrefix }: LayoutProps) {
+  return (
+    <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions} titlePrefix={titlePrefix}>
+      {children}
+    </LayoutSidebar>
+  );
 }

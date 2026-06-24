@@ -85,3 +85,16 @@ export function loadTcModelMeta(jobId: number): TcModelMeta | null {
     return store[jobId] ?? null;
   } catch { return null; }
 }
+
+export function updateTcRequesterNickname(nickname: string): void {
+  if (typeof window === 'undefined' || !nickname.trim()) return;
+  try {
+    const store: Record<number, TcModelMeta> = JSON.parse(localStorage.getItem(TC_MODEL_KEY) ?? '{}');
+    let changed = false;
+    Object.keys(store).forEach(key => {
+      store[Number(key)] = { ...store[Number(key)], requester: nickname };
+      changed = true;
+    });
+    if (changed) localStorage.setItem(TC_MODEL_KEY, JSON.stringify(store));
+  } catch { /* noop */ }
+}
