@@ -59,6 +59,25 @@ function fmtRunDate(dt: string): string {
   return dt;
 }
 
+function LogPanel({ logs, className = '' }: { logs: string[]; className?: string }) {
+  return (
+    <div className={`rounded-xl border border-gray-700 bg-black p-4 overflow-y-auto font-mono text-xs leading-5 ${className}`}>
+      {logs.length === 0 ? (
+        <div className="text-gray-500">로그를 불러오는 중이거나 아직 기록된 로그가 없습니다.</div>
+      ) : (
+        logs.map((line, i) => (
+          <div key={i} className={
+            line.startsWith('[INFO]')  ? 'text-gray-200' :
+            line.startsWith('[WARN]')  ? 'text-yellow-300' :
+            line.startsWith('[ERROR]') ? 'text-red-400' :
+            'text-gray-500'
+          }>{line}</div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 export default function ExperimentResultDetail() {
@@ -158,6 +177,8 @@ export default function ExperimentResultDetail() {
     ? loadClientExperiments().find(exp => exp.id === parentExpId) ?? null
     : null;
   const executionName = formatExecutionName(job?.experiment_name, detail?.params.run_datetime);
+  const resultStatus = (job?.status ?? 'COMPLETED').toUpperCase();
+  const isFailedResult = resultStatus === 'FAILED';
 
   const titlePrefix = (
     <span className="inline-flex items-center gap-2 text-sm text-gray-500">
@@ -206,7 +227,7 @@ export default function ExperimentResultDetail() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
-              const s = (job?.status ?? 'COMPLETED').toUpperCase();
+              const s = resultStatus;
               const cls =
                 s === 'COMPLETED' ? 'bg-blue-100 text-blue-800 border-blue-200' :
                 s === 'FAILED'    ? 'bg-red-100 text-red-800 border-red-200' :
@@ -230,6 +251,10 @@ export default function ExperimentResultDetail() {
         </div>
       </div>
 
+      {isFailedResult ? (
+        <LogPanel logs={logs} className="flex-1 min-h-0" />
+      ) : (
+        <>
       {/* 본문 2열×2행 — 행1: 슬라이드 / 정보 스택, 행2: 로그(좌하단) */}
       <div className="grid grid-cols-[9fr_16fr] grid-rows-[1fr_auto] gap-x-4 flex-1 min-h-0">
 
@@ -451,18 +476,11 @@ export default function ExperimentResultDetail() {
 
         {/* (2,1) 로그 — 슬라이드 아래 행에 표시 */}
         {logs.length > 0 && (
-          <div className="mt-3 rounded-xl border border-gray-700 bg-black p-4 max-h-32 overflow-y-auto font-mono text-xs leading-5">
-            {logs.map((line, i) => (
-              <div key={i} className={
-                line.startsWith('[INFO]')  ? 'text-gray-200' :
-                line.startsWith('[WARN]')  ? 'text-yellow-300' :
-                line.startsWith('[ERROR]') ? 'text-red-400' :
-                'text-gray-500'
-              }>{line}</div>
-            ))}
-          </div>
+          <LogPanel logs={logs} className="mt-3 max-h-32" />
         )}
       </div>
+        </>
+      )}
       </div>
     </Layout>
   );
