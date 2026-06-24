@@ -11,8 +11,8 @@ interface LoginResponse {
   username: string;
 }
 
-const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'seongsimyoon';
-const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || '1234';
+const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'KICT-001';
+const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || 'kict001';
 
 export async function POST(req: Request) {
   const body = (await req.json()) as LoginRequest;

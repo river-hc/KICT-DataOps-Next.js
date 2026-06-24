@@ -2,14 +2,21 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getDisplayUsername } from './account';
+import { ACCOUNT_PROFILE_EVENT, getDisplayUsername } from './account';
 
 export default function UserPopup() {
   const [username, setUsername] = useState('');
   const router = useRouter();
 
   useEffect(() => {
-    setUsername(getDisplayUsername());
+    const syncUsername = () => setUsername(getDisplayUsername());
+    syncUsername();
+    window.addEventListener(ACCOUNT_PROFILE_EVENT, syncUsername);
+    window.addEventListener('storage', syncUsername);
+    return () => {
+      window.removeEventListener(ACCOUNT_PROFILE_EVENT, syncUsername);
+      window.removeEventListener('storage', syncUsername);
+    };
   }, []);
 
   const initial = username.charAt(0).toUpperCase();

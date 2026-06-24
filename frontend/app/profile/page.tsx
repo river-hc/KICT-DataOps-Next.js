@@ -4,10 +4,12 @@ import { useState, useEffect, FormEvent } from 'react';
 import Layout from '@/lib/Layout';
 import {
   getDisplayUsername,
-  changeUsername,
+  getLoginUsername,
+  changeNickname,
   changePassword,
   verifyCurrentPassword,
 } from '@/lib/account';
+import { updateTcRequesterNickname } from '@/lib/experimentStore';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
 
@@ -15,8 +17,9 @@ const MIN_PW_LEN = 4;
 
 export default function ProfilePage() {
   const [currentName, setCurrentName] = useState('');
+  const [loginName, setLoginName] = useState('');
 
-  // 유저네임 변경
+  // 닉네임 변경
   const [newName, setNewName]       = useState('');
   const [nameNotice, setNameNotice] = useState<Notice>(null);
   const [nameSaving, setNameSaving] = useState(false);
@@ -32,6 +35,7 @@ export default function ProfilePage() {
     const name = getDisplayUsername();
     setCurrentName(name);
     setNewName(name);
+    setLoginName(getLoginUsername());
   }, []);
 
   const initial = currentName.charAt(0).toUpperCase();
@@ -41,18 +45,19 @@ export default function ProfilePage() {
     setNameNotice(null);
     const trimmed = newName.trim();
     if (!trimmed) {
-      setNameNotice({ type: 'error', text: '아이디를 입력하세요.' });
+      setNameNotice({ type: 'error', text: '닉네임을 입력하세요.' });
       return;
     }
     if (trimmed === currentName) {
-      setNameNotice({ type: 'error', text: '기존 아이디와 동일합니다.' });
+      setNameNotice({ type: 'error', text: '기존 닉네임과 동일합니다.' });
       return;
     }
     setNameSaving(true);
-    changeUsername(trimmed);
+    changeNickname(trimmed);
+    updateTcRequesterNickname(trimmed);
     setCurrentName(trimmed);
     setNameSaving(false);
-    setNameNotice({ type: 'success', text: '아이디가 변경되었습니다.' });
+    setNameNotice({ type: 'success', text: '닉네임이 변경되었습니다.' });
   };
 
   const handlePwSubmit = (e: FormEvent) => {
@@ -97,24 +102,24 @@ export default function ProfilePage() {
           </div>
           <div className="min-w-0">
             <p className="text-lg font-bold text-gray-900 truncate">{currentName}</p>
-            <p className="text-sm text-gray-400">관리자</p>
+            <p className="text-sm text-gray-400">관리자 · 로그인 계정 {loginName}</p>
           </div>
         </div>
 
-        {/* 아이디 변경 */}
+        {/* 닉네임 변경 */}
         <form onSubmit={handleNameSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-1">아이디 변경</h2>
-          <p className="text-xs text-gray-400 mb-4">변경 즉시 화면에 반영되며, 다음 로그인부터 새 아이디로 로그인합니다.</p>
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">닉네임 변경</h2>
+          <p className="text-xs text-gray-400 mb-4">변경 즉시 화면과 실험 요청자명에 반영됩니다.</p>
 
-          <label htmlFor="newName" className="block text-xs font-semibold text-gray-500 mb-1.5">새 아이디</label>
+          <label htmlFor="newName" className="block text-xs font-semibold text-gray-500 mb-1.5">새 닉네임</label>
           <input
             id="newName"
             type="text"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-blue-400 focus:outline-none transition-colors"
-            placeholder="새 아이디를 입력하세요"
-            autoComplete="username"
+            placeholder="새 닉네임"
+            autoComplete="nickname"
           />
 
           {nameNotice && <FormNotice notice={nameNotice} />}
@@ -125,7 +130,7 @@ export default function ProfilePage() {
               disabled={nameSaving}
               className="px-4 py-2 text-sm font-semibold text-white rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
             >
-              {nameSaving ? '저장 중...' : '아이디 변경'}
+              {nameSaving ? '저장 중...' : '닉네임 변경'}
             </button>
           </div>
         </form>

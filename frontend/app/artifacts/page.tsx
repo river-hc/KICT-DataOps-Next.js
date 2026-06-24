@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getArtifactsByRun, getUsername, type TrainingJob, type Artifact } from '@/lib/api';
+import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, type TrainingJob, type Artifact } from '@/lib/api';
 import { loadTcModelMeta } from '@/lib/experimentStore';
 
 function fmtSize(bytes: number | null | undefined): string {
@@ -68,8 +68,7 @@ export default function Artifacts() {
 
   const displayRequester = (job: TrainingJob): string => {
     const stored = loadTcModelMeta(job.job_id)?.requester;
-    if (stored) return stored;
-    return job.user_name && job.user_name !== 'anonymous' ? job.user_name : currentUser;
+    return displayUsername(stored ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : currentUser));
   };
 
   const displayMode = (job: TrainingJob): string => {
@@ -115,11 +114,6 @@ export default function Artifacts() {
                   <p className="text-sm font-medium text-gray-800 truncate">{t.experiment_name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {displayRequester(t)} · {displayMode(t)}
-                    {t.run_id != null && (
-                      <span className="ml-1.5 font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">
-                        Run #{t.run_id}
-                      </span>
-                    )}
                   </p>
                 </div>
               ))
@@ -131,11 +125,6 @@ export default function Artifacts() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-700">아티팩트 목록</span>
-            {selectedRunId && (
-              <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                Run #{selectedRunId}
-              </span>
-            )}
             {selectedRunId && artifacts.length > 0 && (
               <>
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-auto">

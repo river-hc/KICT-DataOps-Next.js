@@ -35,12 +35,17 @@ export interface TrainingResultParams {
   include_preview_image: boolean | null;
   run_datetime: string | null;
   observation_dataset_id?: number | null;
+  observation_dataset_dir?: string | null;
+  output_dir?: string | null;
   // 실험 등록 시 작성한 메모 — 백엔드 응답 노출 대기 (request.md 항목 9)
   experiment_memo?: string | null;
 }
 
 export interface TrainingMetricSources {
   observation_dataset_dir?: string | null;
+  output_dir?: string | null;
+  metrics_dir?: string | null;
+  metrics_file_path?: string | null;
   matched_targets?: Record<string, string>;
   missing_steps?: number[];
   errors?: Record<string, string>;
@@ -155,14 +160,15 @@ export function getToken(): string | null {
 
 export function getUsername(): string | null {
   if (typeof window === 'undefined') return null;
-  const token = localStorage.getItem('token');
-  if (!token) return null;
-  try {
-    const parts = atob(token).split(':');
-    return parts[0] || null;
-  } catch {
-    return null;
-  }
+  if (!localStorage.getItem('token')) return null;
+  return localStorage.getItem('nickname') || localStorage.getItem('username') || null;
+}
+
+export function displayUsername(value?: string | null): string {
+  if (typeof window === 'undefined') return value || '-';
+  const currentNickname = getUsername();
+  if (currentNickname) return currentNickname;
+  return (value || '').trim() || '-';
 }
 
 export function isLoggedIn(): boolean {
@@ -198,6 +204,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
   const res = await fetch(BASE_URL + url, {
+    cache: 'no-store',
     headers,
     ...options,
   });
@@ -290,6 +297,7 @@ export interface ExperimentCreateRequest {
     file_t3: AscFileInput;
   };
   model_version: string | null;
+  mode?: 'single' | 'multi' | string | null;
   forecast_steps: number[] | null;
   include_preview_image: boolean | null;
   experiment_name: string | null;

@@ -17,7 +17,7 @@ import {
   fmtDateTime, fmtDuration, fmtElapsed, fmtRunDatetime,
   type MockDetail,
 } from './mockData';
-import type { TrainingJob } from './api';
+import { displayUsername, type TrainingJob } from './api';
 import PerfHistoryTable from './PerfHistoryTable';
 
 type StatusFilter = 'ALL' | 'RUNNING' | 'QUEUED' | 'COMPLETED' | 'FAILED';
@@ -274,7 +274,6 @@ function JobCard({ job, isSelected, onClick }: { job: TrainingJob; isSelected: b
         {/* 상태 뱃지 + 잡 ID */}
         <div className="flex items-center justify-between mb-1.5">
           <Badge status={job.status} />
-          <span className="text-xs text-gray-300 font-mono">#{job.job_id}</span>
         </div>
 
         {/* 실험명 */}
@@ -284,7 +283,7 @@ function JobCard({ job, isSelected, onClick }: { job: TrainingJob; isSelected: b
 
         {/* 메타 정보 */}
         <p className="text-xs text-gray-400 mt-1.5 truncate">
-          {job.user_name} · {fmtDateTime(job.finished_at ?? job.started_at ?? job.created_at)}
+          {displayUsername(job.user_name)} · {fmtDateTime(job.finished_at ?? job.started_at ?? job.created_at)}
         </p>
 
         {/* 실행 중: 진행률 바 */}
@@ -330,11 +329,9 @@ function DetailPanel({ job, detail }: { job: TrainingJob; detail: MockDetail | n
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <Badge status={job.status} />
-          <span className="text-xs text-gray-400 font-mono">Job #{job.job_id}</span>
-          {job.run_id && <span className="text-xs text-gray-400 font-mono">Run #{job.run_id}</span>}
         </div>
         <h2 className="text-lg font-bold text-gray-900 leading-snug">{job.experiment_name}</h2>
-        <p className="text-sm text-gray-400 mt-1">{job.user_name} · {job.mode}</p>
+        <p className="text-sm text-gray-400 mt-1">{displayUsername(job.user_name)} · {job.mode}</p>
 
         {s === 'RUNNING' && job.progress != null && (
           <div className="mt-4 pt-4 border-t border-gray-50">

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import Layout from '@/lib/Layout';
 import { MOCK_TRAINING_RUNS, type MockTrainingRun, fmtDateTime } from '@/lib/mockData';
+import { displayUsername } from '@/lib/api';
 
 // ─── 유틸 ─────────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ export default function RunsPage() {
           <p className="text-2xl font-bold text-emerald-600 tabular-nums">{bestValLoss.toFixed(4)}</p>
           {bestRun && (
             <p className="text-xs text-gray-400 mt-0.5 truncate">
-              Run #{bestRun.run_id} · {bestRun.model_version}
+              {bestRun.model_version}
             </p>
           )}
         </div>
@@ -176,7 +177,6 @@ export default function RunsPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <SortTh label="Run"       sKey="run_id"          current={sortKey} dir={sortDir} onClick={handleSort} />
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">실험명</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">버전</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500">모드</th>
@@ -198,11 +198,6 @@ export default function RunsPage() {
                           selectedId === run.run_id ? 'bg-blue-50' : 'hover:bg-gray-50'
                         }`}
                       >
-                        <td className="px-4 py-3">
-                          <span className="font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
-                            #{run.run_id}
-                          </span>
-                        </td>
                         <td className="px-4 py-3 font-medium text-gray-800 max-w-[200px]">
                           <span className="truncate block">{run.experiment_name}</span>
                         </td>
@@ -260,9 +255,6 @@ export default function RunsPage() {
               <div className="flex items-start justify-between mb-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-mono text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
-                      #{selected.run_id}
-                    </span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                       selected.model_version === 'v3'
                         ? 'bg-emerald-100 text-emerald-700'
@@ -275,7 +267,7 @@ export default function RunsPage() {
                   <h2 className="text-sm font-semibold text-gray-900 leading-snug">
                     {selected.experiment_name}
                   </h2>
-                  <p className="text-xs text-gray-400 mt-0.5">{selected.created_by}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{displayUsername(selected.created_by)}</p>
                 </div>
                 <button
                   onClick={() => setSelectedId(null)}

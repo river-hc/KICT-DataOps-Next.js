@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import DashboardExplorer from '@/lib/DashboardExplorer';
 import DashboardKanban   from '@/lib/DashboardKanban';
+import { ACCOUNT_PROFILE_EVENT } from '@/lib/account';
 import {
   getTrainings,
   getExperimentJobs,
   getSystemStatus,
   getTrainingResult,
+  displayUsername,
   type TrainingJob,
   type SystemStatus,
 } from '@/lib/api';
@@ -201,7 +203,7 @@ const STATUS_LABEL: Record<TabKey, string> = {
   FAILED: '실패',
 };
 
-// 실험 케이스별 결과 테이블 — 도넛 차트에서 선택한 상태의 당일 작업 표시
+// 실행별 결과 테이블 — 도넛 차트에서 선택한 상태의 당일 작업 표시
 function TcResultsTable({
   pts,
   jobs,
@@ -243,7 +245,7 @@ function TcResultsTable({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {['실험명', '사용자', '실험 케이스', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+                {['실험명', '사용자', '실행', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -262,10 +264,9 @@ function TcResultsTable({
                   onClick={() => { if (clickable) router.push(`/experiment-results/${job.job_id}`); }}
                 >
                   <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.job_id)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{job.user_name || '-'}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{displayUsername(job.user_name)}</td>
                   <td className="px-4 py-2.5 max-w-[180px]">
                     <p className="text-sm font-medium text-gray-800 truncate">{job.experiment_name}</p>
-                    <p className="text-[11px] text-gray-400">#{job.job_id} · {job.status}</p>
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`text-xs font-semibold ${/v3/i.test(modelVersion) ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -295,6 +296,7 @@ function Dashboard() {
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
   const [activeStatus, setActiveStatus] = useState<TabKey>('COMPLETED');
+  const [, setProfileTick] = useState(0);
   const prevCompletedIdsRef = useRef('');
 
   const fetchAll = useCallback(async () => {
@@ -312,6 +314,16 @@ function Dashboard() {
   useEffect(() => {
     fetchAll().finally(() => setLoading(false));
   }, [fetchAll]);
+
+  useEffect(() => {
+    const refreshProfile = () => setProfileTick(v => v + 1);
+    window.addEventListener(ACCOUNT_PROFILE_EVENT, refreshProfile);
+    window.addEventListener('storage', refreshProfile);
+    return () => {
+      window.removeEventListener(ACCOUNT_PROFILE_EVENT, refreshProfile);
+      window.removeEventListener('storage', refreshProfile);
+    };
+  }, []);
 
   useEffect(() => {
     const id = setInterval(fetchAll, 2000);
@@ -379,7 +391,7 @@ function Dashboard() {
         </div>
       )}
 
-      {/* 도넛 차트 + 실험 케이스 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
+      {/* 도넛 차트 + 실행 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
       <div className="flex gap-4 mb-6 items-stretch">
         <div className="w-[40%]">
           <StatusDonutChart

@@ -16,7 +16,7 @@ import {
   fmtDateTime, fmtDuration, fmtElapsed, fmtRunDatetime,
   type MockDetail,
 } from './mockData';
-import type { TrainingJob } from './api';
+import { displayUsername, type TrainingJob } from './api';
 
 // ─── 상태 섹션 설정 ───────────────────────────────────────────────────────────
 
@@ -161,7 +161,6 @@ function CompactHistoryBox() {
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-400">Run</th>
               <th className="px-2 py-2 text-left text-[10px] font-semibold text-gray-400">Ver</th>
               <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400">MAE</th>
               <th className="px-2 py-2 text-right text-[10px] font-semibold text-gray-400">RMSE</th>
@@ -175,15 +174,6 @@ function CompactHistoryBox() {
               const isBestCsi  = row.csi  === bestCsi;
               return (
                 <tr key={row.run_id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-3 py-2.5">
-                    <Link
-                      href={`/runs?run=${row.run_id}`}
-                      onClick={e => e.stopPropagation()}
-                      className="font-mono text-[10px] bg-violet-50 text-violet-700 hover:bg-violet-100 px-1.5 py-0.5 rounded transition-colors"
-                    >
-                      #{row.run_id}
-                    </Link>
-                  </td>
                   <td className="px-2 py-2.5">
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                       row.version === 'v3'
@@ -396,8 +386,7 @@ function JobAccordion({
             {job.experiment_name}
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {job.user_name} · {job.mode} · Job #{job.job_id}
-            {job.run_id && ` · Run #${job.run_id}`}
+            {displayUsername(job.user_name)} · {job.mode}
           </p>
         </div>
 
