@@ -7,6 +7,7 @@ const HIDDEN_KEY = 'kict_model_hidden';  // number[] — 삭제(숨김) 처리�
 const DESC_KEY   = 'kict_model_desc';    // { [modelName]: string } — 모델 설명 편집값
 const STATUS_KEY = 'kict_model_status';  // { [modelVersionId]: CREATED|SELECTED|ARCHIVED }
 const PENDING_TRAINING_KEY = 'kict_model_pending_trainings';
+const REGISTERED_MODELS_KEY = 'kict_registered_models';
 
 export type StoredModelStatus = 'CREATED' | 'SELECTED' | 'ARCHIVED';
 export type TrainingModelStatus = 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
@@ -21,6 +22,71 @@ export interface PendingTrainingModel {
   finishedAt: string | null;
   registerPolicy: string | null;
   memo: string | null;
+}
+
+function normalizeRegisteredModel(model: ModelVersion): ModelVersion {
+  return {
+    ...model,
+    id: Number(model.id),
+    experiment_id: Number(model.experiment_id ?? 0),
+    run_id: model.run_id ?? null,
+    model_name: model.model_name || 'KICT-RAIN-AI',
+    version: model.version,
+    status: model.status || 'CREATED',
+    metrics: model.metrics ?? {},
+    model_path: model.model_path ?? null,
+    created_at: model.created_at ?? new Date().toISOString(),
+  };
+}
+
+export function loadRegisteredModels(): ModelVersion[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(REGISTERED_MODELS_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.map(normalizeRegisteredModel) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRegisteredModels(models: ModelVersion[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(REGISTERED_MODELS_KEY, JSON.stringify(models));
+}
+
+export function saveRegisteredModel(input: {
+  modelName: string;
+  version: string;
+  architecture: 'single' | 'multi';
+  filePaths: string[];
+}): ModelVersion {
+  const next: ModelVersion = {
+    id: Date.now(),
+    experiment_id: 0,
+    run_id: null,
+    model_name: input.modelName,
+    version: input.version,
+    status: 'CREATED',
+    metrics: {
+      architecture: input.architecture,
+      file_count: input.filePaths.length,
+      registered_from: 'frontend',
+    },
+    model_path: input.filePaths.join(', '),
+    created_at: new Date().toISOString(),
+  };
+
+  saveRegisteredModels([next, ...loadRegisteredModels()]);
+  return next;
+}
+
+export function mergeRegisteredModels(models: ModelVersion[]): ModelVersion[] {
+  const local = loadRegisteredModels();
+  const existing = new Set(models.map(model => `${model.model_name}:${model.version}`));
+  return [
+    ...local.filter(model => !existing.has(`${model.model_name}:${model.version}`)),
+    ...models,
+  ];
 }
 
 function normalizeModelStatus(status: string | null | undefined): StoredModelStatus {
@@ -168,7 +234,7 @@ function pendingToModel(item: PendingTrainingModel): ModelVersion {
     experiment_id: 0,
     run_id: null,
     model_name: item.modelName,
-    version: `Job #${item.jobId}`,
+    version: '학습 중',
     status: item.status,
     metrics: {
       architecture: item.mode,
