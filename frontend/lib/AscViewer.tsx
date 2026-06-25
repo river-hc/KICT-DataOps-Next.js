@@ -518,15 +518,6 @@ export default function AscViewer(props: AscViewerProps) {
             <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
               <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
             </button>
-            <div className="flex items-center gap-2 ml-auto text-xs text-gray-400">
-              <span>느림</span>
-              <input type="range" min={200} max={2000} step={100}
-                value={2200 - intervalMs}
-                onChange={e => setIntervalMs(2200 - Number(e.target.value))}
-                className="w-20 accent-blue-600"
-              />
-              <span>빠름</span>
-            </div>
           </div>
 
           <div className="flex flex-wrap gap-1.5 mt-3">

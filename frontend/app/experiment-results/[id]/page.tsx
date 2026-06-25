@@ -61,19 +61,21 @@ function fmtRunDate(dt: string): string {
 
 function LogPanel({ logs, className = '' }: { logs: string[]; className?: string }) {
   return (
-    <div className={`rounded-xl border border-gray-700 bg-black p-4 overflow-y-auto font-mono text-xs leading-5 ${className}`}>
-      {logs.length === 0 ? (
-        <div className="text-gray-500">로그를 불러오는 중이거나 아직 기록된 로그가 없습니다.</div>
-      ) : (
-        logs.map((line, i) => (
-          <div key={i} className={
-            line.startsWith('[INFO]')  ? 'text-gray-200' :
-            line.startsWith('[WARN]')  ? 'text-yellow-300' :
-            line.startsWith('[ERROR]') ? 'text-red-400' :
-            'text-gray-500'
-          }>{line}</div>
-        ))
-      )}
+    <div className={`rounded-xl border border-gray-700 bg-black p-3 overflow-hidden ${className}`}>
+      <div className="h-full overflow-y-auto pr-2 font-mono text-xs leading-5">
+        {logs.length === 0 ? (
+          <div className="text-gray-500">로그를 불러오는 중이거나 아직 기록된 로그가 없습니다.</div>
+        ) : (
+          logs.map((line, i) => (
+            <div key={i} className={
+              line.startsWith('[INFO]')  ? 'text-gray-200' :
+              line.startsWith('[WARN]')  ? 'text-yellow-300' :
+              line.startsWith('[ERROR]') ? 'text-red-400' :
+              'text-gray-500'
+            }>{line}</div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -96,7 +98,7 @@ export default function ExperimentResultDetail() {
   // 재생 상태 (AscViewer controlled mode)
   const [frameIdx,   setFrameIdx]   = useState(0);
   const [isPlaying,  setIsPlaying]  = useState(false);
-  const [intervalMs, setIntervalMs] = useState(900);
+  const [intervalMs] = useState(1000);
 
   useEffect(() => {
     if (jobId == null) return;
@@ -255,8 +257,8 @@ export default function ExperimentResultDetail() {
         <LogPanel logs={logs} className="flex-1 min-h-0" />
       ) : (
         <>
-      {/* 본문 2열×2행 — 행1: 슬라이드 / 정보 스택, 행2: 로그(좌하단) */}
-      <div className="grid grid-cols-[9fr_16fr] grid-rows-[1fr_auto] gap-x-4 flex-1 min-h-0">
+      {/* 본문 2열×2행 — 행1: 뷰어 / 정보, 행2: 로그 / 메모 */}
+      <div className="grid grid-cols-[9fr_16fr] grid-rows-[minmax(0,1fr)_8rem] gap-x-4 gap-y-3 flex-1 min-h-0">
 
         {/* (1,1) QPF 슬라이드 — 좌상단 */}
         <div className="min-h-0">
@@ -271,7 +273,6 @@ export default function ExperimentResultDetail() {
               playing={isPlaying}
               onPlayingChange={setIsPlaying}
               speed={intervalMs}
-              onSpeedChange={setIntervalMs}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-200 min-h-[300px]">
@@ -286,11 +287,8 @@ export default function ExperimentResultDetail() {
           )}
         </div>
 
-        {/* (1,2)-(2,2) 정보 스택 — 두 행에 걸쳐 배치 */}
-        <div className="row-span-2 flex flex-col gap-3 min-w-0 min-h-0">
-
-          {/* 왼쪽 슬라이드 제목 줄과 높이를 맞춰, 첫 카드가 슬라이드 이미지 상단선에 정렬되도록 함 */}
-          <p aria-hidden className="text-xs font-semibold uppercase tracking-wider flex-shrink-0 invisible">spacer</p>
+        {/* (1,2) 정보 스택 — canvas 상단/하단선에 맞춰 배치 */}
+        <div className="flex flex-col gap-3 min-w-0 min-h-0 pt-7">
 
           {/* 재생 컨트롤 */}
           {steps.length > 0 && (
@@ -318,15 +316,6 @@ export default function ExperimentResultDetail() {
                 <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
                   <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
                 </button>
-                <div className="flex items-center gap-2 ml-auto text-xs text-gray-400">
-                  <span>느림</span>
-                  <input type="range" min={200} max={2000} step={100}
-                    value={2200 - intervalMs}
-                    onChange={e => setIntervalMs(2200 - Number(e.target.value))}
-                    className="w-20 accent-blue-600"
-                  />
-                  <span>빠름</span>
-                </div>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
                 {steps.map((step, i) => (
@@ -353,15 +342,15 @@ export default function ExperimentResultDetail() {
           )}
 
           {/* 카드 1행 배치: 성능 지표 · 모델 설정 · 검증 데이터 · 실행 일정 */}
-          <div className="grid grid-cols-4 gap-3 flex-shrink-0">
+          <div className="grid grid-cols-4 gap-3 flex-1 min-h-0">
 
             {/* 성능 지표 — 전체 단일 값 (MAE / RMSE / CSI) */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <div className="flex items-center justify-between mb-2 min-w-0">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 min-w-0 min-h-0 h-full overflow-y-auto">
+              <div className="flex items-center justify-between mb-4 min-w-0">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">성능 지표</p>
               </div>
               {hasMetricValues ? (
-                <div className="space-y-0.5">
+                <div className="space-y-5 pt-2">
                   {pm.summary.mae  != null && <MetricBar metricKey="mae"  value={pm.summary.mae} />}
                   {pm.summary.rmse != null && <MetricBar metricKey="rmse" value={pm.summary.rmse} />}
                   {pm.summary.csi  != null && <MetricBar metricKey="csi"  value={pm.summary.csi} />}
@@ -372,10 +361,10 @@ export default function ExperimentResultDetail() {
             </div>
 
             {/* 모델 설정 */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">모델 설정</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">모델 설정</p>
               {detail ? (
-                <div className="space-y-2">
+                <div className="space-y-5 pt-2">
                   <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">모델 버전</span>
                     <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold ${
@@ -397,10 +386,10 @@ export default function ExperimentResultDetail() {
             </div>
 
             {/* 검증 데이터 */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">검증 데이터</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">검증 데이터</p>
               {metricSources ? (
-                <div className="space-y-2">
+                <div className="space-y-4 pt-2">
                   <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">비교 데이터 경로</span>
                     <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
@@ -437,9 +426,9 @@ export default function ExperimentResultDetail() {
             </div>
 
             {/* 실행 일정 */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">실행 일정</p>
-              <div className="space-y-2">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">실행 일정</p>
+              <div className="space-y-4 pt-2">
                 <div className="min-w-0">
                   <span className="text-xs text-gray-500 block mb-0.5">요청자</span>
                   <span className="text-xs font-medium text-gray-900 block break-words">{displayRequester}</span>
@@ -465,19 +454,16 @@ export default function ExperimentResultDetail() {
 
           </div>
 
-          {memo && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 max-h-32 overflow-y-auto">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
-              <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
-            </div>
-          )}
-
         </div>
 
-        {/* (2,1) 로그 — 슬라이드 아래 행에 표시 */}
-        {logs.length > 0 && (
-          <LogPanel logs={logs} className="mt-3 max-h-32" />
-        )}
+        {/* (2,1) 로그 — 메모와 같은 행/높이 */}
+        <LogPanel logs={logs} className="h-full min-h-0" />
+
+        {/* (2,2) 메모 — 로그와 같은 행/높이 */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
+          <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo || '-'}</p>
+        </div>
       </div>
         </>
       )}
