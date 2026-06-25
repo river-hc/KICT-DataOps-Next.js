@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
-  title: 'DataOps Platform',
-  description: 'AI 모델 학습 및 결과 관리 플랫폼',
+  title: 'KICT DataOps',
+  description: 'AI 모델 학습 및 결과 관리',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

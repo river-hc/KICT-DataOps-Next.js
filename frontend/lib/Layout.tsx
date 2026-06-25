@@ -263,7 +263,7 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions, titl
         {/* 하단 브랜드 — 푸터와 동일 높이(h-12)로 상단 경계선 일치 */}
         {open && (
           <div className="h-12 flex-shrink-0 flex items-center px-4 border-t" style={{ borderColor: 'var(--sidebar-border)' }}>
-            <span className="text-xs font-medium" style={{ color: 'var(--sidebar-text)' }}>DataOps Platform</span>
+            <span className="text-xs font-medium" style={{ color: 'var(--sidebar-text)' }}>KICT DataOps</span>
           </div>
         )}
       </aside>

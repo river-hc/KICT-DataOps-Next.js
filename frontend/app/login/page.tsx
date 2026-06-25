@@ -82,7 +82,7 @@ export default function LoginPage() {
             />
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--login-muted)' }}>
-            AI 모델 학습 및 결과 관리 플랫폼
+            AI 모델 학습 및 결과 관리
           </p>
         </div>
 

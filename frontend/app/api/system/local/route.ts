@@ -114,7 +114,6 @@ export async function GET() {
     ram,
     disk,
     os: {
-      platform:       os.platform(),
       release:        os.release(),
       uptime_seconds: Math.round(os.uptime()),
       node:           process.version,

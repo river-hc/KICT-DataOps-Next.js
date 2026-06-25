@@ -18,11 +18,11 @@ const ROUTE_TITLES: [string, string][] = [
 ];
 
 export function resolveTitle(pathname: string | null): string {
-  if (!pathname) return 'DataOps Platform';
+  if (!pathname) return 'DataOps';
   const match = ROUTE_TITLES.find(
     ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
-  return match ? match[1] : 'DataOps Platform';
+  return match ? match[1] : 'DataOps';
 }
 
 /** 전역 헤더 — viewport 최상단 고정 (사이드바 로고 영역과 동일 높이 h-16) */
