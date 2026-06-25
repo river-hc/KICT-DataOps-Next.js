@@ -9,12 +9,10 @@ import { ACCOUNT_PROFILE_EVENT } from '@/lib/account';
 import {
   getTrainings,
   getExperimentJobs,
-  getSystemStatus,
   getTrainingResult,
   displayUsername,
   formatExecutionName,
   type TrainingJob,
-  type SystemStatus,
 } from '@/lib/api';
 import { metricsOrSample } from '@/lib/metrics';
 import { loadClientExperiments, loadExpTcMap } from '@/lib/experimentStore';
@@ -132,8 +130,8 @@ function StatusDonutChart({
       <div className="px-4 pt-4 pb-1">
         <p className="text-xs font-semibold text-gray-500">{formatToday()} 기준</p>
       </div>
-      <div className="flex flex-col items-center px-4 py-4 gap-3 flex-1 justify-center">
-        <svg viewBox="0 0 216 216" className="w-full max-w-[296px]">
+      <div className="flex flex-col items-center px-3 py-2 gap-2 flex-1 justify-center min-h-0">
+        <svg viewBox="0 0 216 216" className="w-full max-w-[236px]">
           <circle cx={CX} cy={CY} r={R} fill="none" stroke="#f3f4f6" strokeWidth={SW} />
           {arcs.filter(a => a.count > 0).map(a => {
             const isHovered = hoveredKey === a.key;
@@ -172,11 +170,11 @@ function StatusDonutChart({
           </g>
         </svg>
 
-        <div className="w-full grid grid-cols-2 gap-x-3 gap-y-2">
+        <div className="w-full grid grid-cols-2 gap-x-2 gap-y-1.5">
           {arcs.map(a => (
             <div
               key={a.key}
-              className={`flex flex-col items-center gap-0.5 rounded-lg p-1.5 cursor-pointer transition-colors ${
+              className={`flex flex-col items-center gap-0.5 rounded-lg px-1.5 py-1 cursor-pointer transition-colors ${
                 activeStatus === a.key ? 'bg-gray-100' : 'hover:bg-gray-50'
               }`}
               onMouseEnter={() => setHoveredKey(a.key)}
@@ -188,7 +186,7 @@ function StatusDonutChart({
                 <span className="text-xs truncate text-gray-500">{a.label}</span>
               </div>
               <div className="flex items-baseline gap-1 w-full pl-4">
-                <span className="text-base font-bold tabular-nums" style={{ color: a.color }}>{a.count}</span>
+                <span className="text-sm font-bold tabular-nums" style={{ color: a.color }}>{a.count}</span>
                 <span className="text-xs text-gray-400 tabular-nums">{a.pct}%</span>
               </div>
             </div>
@@ -235,15 +233,14 @@ function TcResultsTable({
   const metricByJobId = new Map(pts.map(pt => [pt.job_id, pt]));
   const rows = jobs
     .filter(job => statusMatches(job, activeStatus))
-    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-    .slice(0, 5);
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <div>
           <h3 className="text-sm font-semibold text-gray-700">실험 결과</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{STATUS_LABEL[activeStatus]} 작업 · 최대 5건</p>
+          <p className="text-xs text-gray-400 mt-0.5">{STATUS_LABEL[activeStatus]} 작업 · {rows.length}건</p>
         </div>
         {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
       </div>
@@ -308,7 +305,6 @@ function TcResultsTable({
 function Dashboard() {
   const [expJobs,      setExpJobs]      = useState<TrainingJob[]>([]);
   const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
-  const [system,       setSystem]       = useState<SystemStatus | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
@@ -324,7 +320,6 @@ function Dashboard() {
       getTrainings()
         .then(data => setTrainJobs(data))
         .catch(() => setTrainJobs([])),
-      getSystemStatus().then(setSystem).catch(() => {}),
     ]);
   }, []);
 
@@ -400,24 +395,15 @@ function Dashboard() {
   const todayJobs = allJobs.filter(isTodayJob);
   return (
     <Layout>
-      {/* 페이지 타이틀은 공통 헤더가 표시 — GPU 온라인 배지만 우측 정렬로 유지 */}
-      {system?.available && (
-        <div className="flex items-center justify-end gap-2 text-sm mb-4">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
-          <span className="text-green-600 font-medium">GPU {system.gpu_count}개 온라인</span>
-        </div>
-      )}
-
-      {/* 도넛 차트 + 실행 결과 테이블 (최근 작업 목록 카드는 결과 테이블 도입으로 제거 — 2026-06-12 피드백) */}
-      <div className="flex gap-4 mb-6 items-stretch">
-        <div className="w-[40%]">
+      <div className="h-[clamp(340px,calc(100dvh-18.5rem),620px)] flex gap-4 items-stretch overflow-hidden">
+        <div className="w-[34%] min-w-[280px]">
           <StatusDonutChart
             jobs={todayJobs}
             activeStatus={activeStatus}
             onStatusChange={setActiveStatus}
           />
         </div>
-        <div className="w-[60%]">
+        <div className="flex-1 min-w-0">
           <TcResultsTable
             pts={chartPts}
             jobs={todayJobs}
