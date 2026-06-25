@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '@/lib/Layout';
 import { getModels, type ModelVersion } from '@/lib/api';
 import { MOCK_MODELS } from '@/lib/modelMock';
-import { formatModelDateTime, getArchitecture, getTrainingMeta } from '@/lib/modelRegistry';
-import { mergeRegisteredModels, saveRegisteredModel } from '@/lib/modelStore';
+import { formatModelDateTime, getArchitecture } from '@/lib/modelRegistry';
+import { hideModel, loadHidden, mergeRegisteredModels, saveRegisteredModel } from '@/lib/modelStore';
 
 // ─── 완료 모델 버전 목록 ─────────────────────────────────────────────────────
 
@@ -26,6 +26,13 @@ function fileLabel(file: File): string {
   return withPath.webkitRelativePath || file.name;
 }
 
+const MODEL_FILE_EXTENSIONS = ['.h5', '.tflite', '.keras', '.pb', '.onnx'];
+
+function isSupportedModelFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return MODEL_FILE_EXTENSIONS.some(ext => name.endsWith(ext));
+}
+
 function ModelRegisterModal({
   nextVersion,
   onClose,
@@ -39,6 +46,18 @@ function ModelRegisterModal({
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const filePaths = files.map(fileLabel);
+  const unsupportedFiles = files.filter(file => !isSupportedModelFile(file));
+  const countError =
+    architecture === 'single' && files.length !== 1
+      ? 'single 모델은 모델 파일 1개를 선택해주세요.'
+      : architecture === 'multi' && files.length === 0
+        ? 'multi 모델 파일을 선택해주세요.'
+        : null;
+  const formatError = unsupportedFiles.length > 0
+    ? `지원되지 않는 모델 파일 형식입니다: ${unsupportedFiles.map(file => file.name).join(', ')}`
+    : null;
+  const validationError = formatError ?? countError;
+  const canRegister = files.length > 0 && !validationError;
 
   const handleFiles = (list: FileList | null) => {
     setFiles(list ? Array.from(list) : []);
@@ -52,12 +71,8 @@ function ModelRegisterModal({
   };
 
   const handleRegister = () => {
-    if (architecture === 'single' && files.length !== 1) {
-      setError('single 모델은 모델 파일 1개를 선택해주세요.');
-      return;
-    }
-    if (architecture === 'multi' && files.length === 0) {
-      setError('multi 모델 파일을 선택해주세요.');
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -133,7 +148,7 @@ function ModelRegisterModal({
               <input
                 type="file"
                 multiple={architecture === 'multi'}
-                accept=".h5,.tflite,.keras,.pb,.onnx"
+                accept={MODEL_FILE_EXTENSIONS.join(',')}
                 onChange={e => handleFiles(e.target.files)}
                 className="hidden"
               />
@@ -155,17 +170,25 @@ function ModelRegisterModal({
                 ))}
               </div>
             )}
+
+            {((files.length > 0 && validationError) || error) && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {error ?? validationError}
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-3 border-t border-gray-100 px-6 py-4">
-          <div className="flex-1 min-w-0">
-            {error && <p className="text-xs text-red-500">{error}</p>}
-          </div>
+          <div className="flex-1 min-w-0" />
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             취소
           </button>
-          <button onClick={handleRegister} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+          <button
+            onClick={handleRegister}
+            disabled={!canRegister}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
             등록
           </button>
         </div>
@@ -180,6 +203,7 @@ export default function Models() {
   const [models, setModels]   = useState<ModelVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRegister, setShowRegister] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<number[]>([]);
 
   const refresh = useCallback(() => {
     getModels()
@@ -192,7 +216,21 @@ export default function Models() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    setHiddenIds(loadHidden());
+    refresh();
+  }, [refresh]);
+
+  const handleDeleteModel = useCallback((model: ModelVersion) => {
+    const ok = window.confirm(
+      `${model.model_name} ${model.version} 모델 버전을 삭제하시겠습니까?\n\n삭제 후 레지스트리 목록에서 표시되지 않습니다.`,
+    );
+    if (!ok) return;
+
+    hideModel(model.id);
+    setHiddenIds(prev => prev.includes(model.id) ? prev : [...prev, model.id]);
+    setModels(prev => prev.filter(item => item.id !== model.id));
+  }, []);
 
   const nextVersion = useMemo(() => nextVersionLabel(models), [models]);
   const titleActions = (
@@ -219,7 +257,7 @@ export default function Models() {
   }
 
   const versions = models
-    .filter(m => !isTrainingStatus(m.status))
+    .filter(m => !isTrainingStatus(m.status) && !hiddenIds.includes(m.id))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
 
   return (
@@ -253,20 +291,23 @@ export default function Models() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  {['모델명', 'Ver.', '방식', '등록일', '학습 시간', '모델 파일'].map(h => (
-                    <th key={h} className="text-left px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap">
+                  {['모델명', 'Ver.', '방식', '등록일', '모델 파일', '삭제'].map(h => (
+                    <th
+                      key={h}
+                      className={`px-3 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap ${
+                        h === '삭제' ? 'text-center' : 'text-left'
+                      }`}
+                    >
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {versions.map(model => {
-                  const meta = getTrainingMeta(model);
-                  return (
+                {versions.map(model => (
                   <tr key={model.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2.5">
@@ -282,12 +323,24 @@ export default function Models() {
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{getArchitecture(model)}</td>
                     <td className="px-3 py-2.5 text-gray-400 text-xs whitespace-nowrap">{formatModelDateTime(model.created_at)}</td>
-                    <td className="px-3 py-2.5 text-gray-700 text-xs whitespace-nowrap">{meta.durationLabel}</td>
                     <td className="px-3 py-2.5 max-w-[260px]">
                       <span className="block truncate font-mono text-xs text-gray-500">{model.model_path ?? '-'}</span>
                     </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteModel(model)}
+                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        title={`${model.version} 삭제`}
+                        aria-label={`${model.version} 삭제`}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.9} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M10 11v6m4-6v6M9 7l1-2h4l1 2m-8 0 1 13h8l1-13" />
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
-                );})}
+                ))}
               </tbody>
             </table>
           </div>
