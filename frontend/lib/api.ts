@@ -1,5 +1,18 @@
-// DataOps Platform API Client
+// DataOps API Client
 // Backend: FastAPI (port 8001) → NGINX reverse proxy (/)
+
+import {
+  addDemoJob,
+  demoArtifacts,
+  demoExperiments,
+  demoModels,
+  demoRuns,
+  demoSystemStatus,
+  demoTrainingLogs,
+  demoTrainingResult,
+  isDemoMode,
+  readDemoJobs,
+} from './demoData';
 
 const BASE_URL = '/api/v1';
 
@@ -144,7 +157,6 @@ export interface LocalSystemInfo {
   ram: { used_mb: number; total_mb: number };
   disk: { used_gb: number; total_gb: number } | null;
   os: {
-    platform: string;
     release: string;
     uptime_seconds: number;
     node: string;
@@ -244,6 +256,7 @@ export async function getHealth(): Promise<{ status: string }> {
 // ─── Training ─────────────────────────────────────────────────────────────────
 
 export async function getTrainings(): Promise<TrainingJob[]> {
+  if (isDemoMode()) return readDemoJobs();
   return request<TrainingJob[]>('/trainings');
 }
 
@@ -272,6 +285,16 @@ export async function createTraining(body: {
     file_t3: AscFileInput;
   };
 }): Promise<{ job_id: number; status: string; queue_position: number; message: string }> {
+  if (isDemoMode()) {
+    const job = addDemoJob({
+      userName: body.user_name,
+      runDatetime: body.run_datetime,
+      modelVersion: body.model_version,
+      mode: body.mode,
+      experimentName: body.experiment_name,
+    });
+    return { job_id: job.job_id, status: job.status, queue_position: 0, message: '데모 실행이 생성되었습니다.' };
+  }
   return request<{ job_id: number; status: string; queue_position: number; message: string }>('/trainings', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -279,14 +302,21 @@ export async function createTraining(body: {
 }
 
 export async function getTraining(jobId: number): Promise<TrainingJob> {
+  if (isDemoMode()) {
+    const job = readDemoJobs().find(item => item.job_id === jobId);
+    if (!job) throw new Error('데모 실행을 찾을 수 없습니다.');
+    return job;
+  }
   return request<TrainingJob>(`/trainings/${jobId}`);
 }
 
 export async function getTrainingLogs(jobId: number): Promise<TrainingLog> {
+  if (isDemoMode()) return demoTrainingLogs(jobId);
   return request<TrainingLog>(`/trainings/${jobId}/logs`);
 }
 
 export async function getTrainingResult(jobId: number): Promise<TrainingResult> {
+  if (isDemoMode()) return demoTrainingResult(jobId);
   return request<TrainingResult>(`/trainings/${jobId}/result`);
 }
 
@@ -340,22 +370,40 @@ export interface ExperimentCreateResponse {
 }
 
 export async function getExperiments(): Promise<Experiment[]> {
+  if (isDemoMode()) return demoExperiments();
   return request<Experiment[]>('/experiments');
 }
 
 export async function getExperiment(id: number): Promise<Experiment> {
+  if (isDemoMode()) {
+    const exp = demoExperiments().find(item => item.id === id);
+    if (!exp) throw new Error('데모 실험을 찾을 수 없습니다.');
+    return exp;
+  }
   return request<Experiment>(`/experiments/${id}`);
 }
 
 export async function getExperimentRuns(id: number): Promise<ExperimentRun[]> {
+  if (isDemoMode()) return demoRuns(id);
   return request<ExperimentRun[]>(`/experiments/${id}/runs`);
 }
 
 export async function getExperimentJobs(): Promise<TrainingJob[]> {
+  if (isDemoMode()) return readDemoJobs();
   return request<TrainingJob[]>('/trainings');
 }
 
 export async function createExperimentJob(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {
+  if (isDemoMode()) {
+    const job = addDemoJob({
+      userName: body.user_name,
+      runDatetime: body.run_datetime,
+      modelVersion: body.model_version,
+      mode: body.mode,
+      experimentName: body.experiment_name,
+    });
+    return { job_id: job.job_id, status: job.status, queue_position: 0, message: '데모 실행이 생성되었습니다.' };
+  }
   return request<ExperimentCreateResponse>('/trainings', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -368,6 +416,16 @@ export async function createExperiment(body: ExperimentCreateRequest): Promise<E
 }
 
 export async function getObservationDatasets(): Promise<ObservationDataset[]> {
+  if (isDemoMode()) {
+    return [{
+      id: 1,
+      name: '기본 검증 데이터셋',
+      folder_name: 'default',
+      description: '/data/observations/default',
+      file_count: 72,
+      created_at: new Date().toISOString(),
+    }];
+  }
   return request<ObservationDataset[]>('/observation-datasets');
 }
 
@@ -408,6 +466,11 @@ export async function createObservationDataset(body: {
 // ─── Runs ─────────────────────────────────────────────────────────────────────
 
 export async function getRun(id: number): Promise<ExperimentRun> {
+  if (isDemoMode()) {
+    const run = demoRuns(202606).find(item => item.id === id);
+    if (!run) throw new Error('데모 run을 찾을 수 없습니다.');
+    return run;
+  }
   return request<ExperimentRun>(`/runs/${id}`);
 }
 
@@ -418,28 +481,42 @@ export async function getArtifacts(): Promise<Artifact[]> {
 }
 
 export async function getArtifactsByRun(runId: number): Promise<Artifact[]> {
+  if (isDemoMode()) return demoArtifacts(runId);
   return request<Artifact[]>(`/runs/${runId}/artifacts`);
 }
 
 export async function getArtifact(artifactId: number): Promise<Artifact> {
+  if (isDemoMode()) {
+    const artifact = demoArtifacts(Math.floor(artifactId / 10)).find(item => item.id === artifactId);
+    if (!artifact) throw new Error('데모 아티팩트를 찾을 수 없습니다.');
+    return artifact;
+  }
   return request<Artifact>(`/artifacts/${artifactId}`);
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 export async function getModels(): Promise<ModelVersion[]> {
+  if (isDemoMode()) return demoModels();
   return request<ModelVersion[]>('/models');
 }
 
 export async function getModel(id: number): Promise<ModelVersion> {
+  if (isDemoMode()) {
+    const model = demoModels().find(item => item.id === id);
+    if (!model) throw new Error('데모 모델을 찾을 수 없습니다.');
+    return model;
+  }
   return request<ModelVersion>(`/models/${id}`);
 }
 
 export async function selectModel(id: number): Promise<ModelVersion> {
+  if (isDemoMode()) return getModel(id);
   return request<ModelVersion>(`/models/${id}/select`, { method: 'POST' });
 }
 
 export async function archiveModel(id: number): Promise<ModelVersion> {
+  if (isDemoMode()) return getModel(id);
   return request<ModelVersion>(`/models/${id}/archive`, { method: 'POST' });
 }
 
@@ -451,6 +528,23 @@ export async function registerModel(form: {
   modelFile: File;
   memo?: string;
 }): Promise<ModelVersion> {
+  if (isDemoMode()) {
+    return {
+      id: Date.now(),
+      experiment_id: 0,
+      run_id: null,
+      model_name: 'KICT-RAIN-AI',
+      version: form.versionLabel,
+      status: 'CREATED',
+      metrics: {
+        architecture: form.architecture,
+        file_count: form.architecture === 'single' ? 1 : 18,
+        registered_from: 'demo',
+      },
+      model_path: form.modelFile.name,
+      created_at: new Date().toISOString(),
+    };
+  }
   const fd = new FormData();
   fd.append('version_label', form.versionLabel);
   fd.append('architecture', form.architecture);
@@ -485,6 +579,7 @@ export async function registerModel(form: {
 // ─── System ───────────────────────────────────────────────────────────────────
 
 export async function getSystemStatus(): Promise<SystemStatus> {
+  if (isDemoMode()) return demoSystemStatus();
   return request<SystemStatus>('/system/gpu');
 }
 

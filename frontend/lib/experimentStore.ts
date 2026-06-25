@@ -1,5 +1,7 @@
 // 클라이언트(localStorage)에 보관하는 실험 환경. 백엔드 experiment_id 연동 전까지
 // 프론트에서 실험을 생성·관리하고, TC(실 백엔드 job)를 매핑한다.
+import { DEMO_EXPERIMENT_ID, DEMO_JOB_IDS, isDemoMode } from './demoData';
+
 export interface ClientExperiment {
   id: number;
   name: string;
@@ -19,9 +21,33 @@ export interface TcModelMeta {
   requester?: string | null;
 }
 
+function ensureDemoExperimentSeed(): void {
+  if (typeof window === 'undefined' || !isDemoMode()) return;
+  const existing = JSON.parse(localStorage.getItem(CLIENT_EXP_KEY) ?? '[]') as ClientExperiment[];
+  if (!existing.some(exp => exp.id === DEMO_EXPERIMENT_ID)) {
+    const demo: ClientExperiment = {
+      id: DEMO_EXPERIMENT_ID,
+      name: '2026 summer',
+      description: 'KICT 강우 예측 모델 성능 검증',
+      created_at: new Date().toISOString(),
+      tc_job_ids: DEMO_JOB_IDS,
+    };
+    localStorage.setItem(CLIENT_EXP_KEY, JSON.stringify([demo, ...existing]));
+  }
+
+  const map = JSON.parse(localStorage.getItem(EXP_TC_MAP_KEY) ?? '{}') as Record<number, number[]>;
+  if (!Array.isArray(map[DEMO_EXPERIMENT_ID]) || map[DEMO_EXPERIMENT_ID].length === 0) {
+    map[DEMO_EXPERIMENT_ID] = DEMO_JOB_IDS;
+    localStorage.setItem(EXP_TC_MAP_KEY, JSON.stringify(map));
+  }
+}
+
 export function loadClientExperiments(): ClientExperiment[] {
   if (typeof window === 'undefined') return [];
-  try { return JSON.parse(localStorage.getItem(CLIENT_EXP_KEY) ?? '[]'); }
+  try {
+    ensureDemoExperimentSeed();
+    return JSON.parse(localStorage.getItem(CLIENT_EXP_KEY) ?? '[]');
+  }
   catch { return []; }
 }
 
@@ -32,7 +58,10 @@ export function saveClientExperiment(exp: ClientExperiment): void {
 
 export function loadExpTcMap(): Record<number, number[]> {
   if (typeof window === 'undefined') return {};
-  try { return JSON.parse(localStorage.getItem(EXP_TC_MAP_KEY) ?? '{}'); }
+  try {
+    ensureDemoExperimentSeed();
+    return JSON.parse(localStorage.getItem(EXP_TC_MAP_KEY) ?? '{}');
+  }
   catch { return {}; }
 }
 
