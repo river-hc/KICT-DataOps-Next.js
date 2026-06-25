@@ -24,6 +24,7 @@ import { metricsOrSample } from '@/lib/metrics';
 const POLL_MS   = 3000;
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
 const DEFAULT_OBSERVATION_DATASET_DIR = '/data/observations/default';
+const GOLD_MEDAL_KEY_PREFIX = 'kict_gold_execution_';
 
 const FALLBACK_MODELS: ModelVersion[] = [
   { id: 1, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI', version: 'Ver.3',
@@ -40,11 +41,11 @@ type SlotKey = 't0' | 't1' | 't2' | 't3';
 
 interface FileState { file: File | null; name: string | null; }
 interface FormFiles { t0: FileState; t1: FileState; t2: FileState; t3: FileState; }
-interface AscFolderState { folderName: string; files: File[]; mappedFiles: FormFiles; }
+interface AscFolderState { folderName: string; files: File[]; mappedFiles: FormFiles; validationError: string | null; }
 
 const EMPTY_FILE:  FileState = { file: null, name: null };
 const EMPTY_FILES: FormFiles = { t0: EMPTY_FILE, t1: EMPTY_FILE, t2: EMPTY_FILE, t3: EMPTY_FILE };
-const EMPTY_ASC_FOLDER: AscFolderState = { folderName: '', files: [], mappedFiles: EMPTY_FILES };
+const EMPTY_ASC_FOLDER: AscFolderState = { folderName: '', files: [], mappedFiles: EMPTY_FILES, validationError: null };
 
 const FILE_SLOTS = [
   { key: 't0' as SlotKey, label: 'T-30분',   desc: '30분 전 관측', offset: -30 },
@@ -52,6 +53,12 @@ const FILE_SLOTS = [
   { key: 't2' as SlotKey, label: 'T-10분',   desc: '10분 전 관측', offset: -10 },
   { key: 't3' as SlotKey, label: 'T (현재)', desc: '현재 관측',    offset:   0 },
 ];
+
+const ASC_FILE_EXTENSIONS = ['.asc'];
+
+function isSupportedAscFile(file: File): boolean {
+  return ASC_FILE_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext));
+}
 
 function getNowDt(): string {
   const now = new Date();
@@ -105,7 +112,7 @@ function toBackendModelVersion(version: string): string {
 
 function mapAscFiles(files: File[]): FormFiles {
   const usable = files
-    .filter(file => /\.(asc|txt|csv|dat)$/i.test(file.name))
+    .filter(isSupportedAscFile)
     .sort((a, b) => {
       const aDt = getCompactDtFromFilename(a.name);
       const bDt = getCompactDtFromFilename(b.name);
@@ -264,10 +271,20 @@ function AscFolderSlot({ state, onChange }: {
   const handleDirectorySelect = (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
+    const ascFiles = files.filter(isSupportedAscFile);
+    const mappedFiles = mapAscFiles(files);
+    const mappedCount = Object.values(mappedFiles).filter(file => file.file).length;
+    const validationError =
+      ascFiles.length === 0
+        ? '지원되지 않는 입력 데이터 형식입니다. .asc 파일이 포함된 폴더를 선택해주세요.'
+        : mappedCount < 4
+          ? '입력 ASC 폴더에서 T-30/T-20/T-10/T 기준 4개 파일을 매핑할 수 없습니다.'
+          : null;
     onChange({
       folderName: getFolderNameFromFiles(files),
       files,
-      mappedFiles: mapAscFiles(files),
+      mappedFiles,
+      validationError,
     });
   };
 
@@ -334,6 +351,12 @@ function AscFolderSlot({ state, onChange }: {
       {state.files.length > 0 && mappedCount < 4 && (
         <p className="text-[11px] text-red-500 mt-2">실행에는 최소 4개의 ASC 파일이 필요합니다.</p>
       )}
+
+      {state.validationError && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          {state.validationError}
+        </div>
+      )}
     </div>
   );
 }
@@ -370,8 +393,8 @@ function AddTcModal({
       setError('모델 버전을 선택해주세요.');
       return;
     }
-    if (Object.values(ascFolder.mappedFiles).some(file => !file.file)) {
-      setError('입력 ASC 폴더에서 최소 4개의 파일을 선택해주세요.');
+    if (ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file)) {
+      setError(ascFolder.validationError ?? '입력 ASC 폴더에서 최소 4개의 파일을 선택해주세요.');
       return;
     }
     setSubmitting(true); setError(null);
@@ -457,7 +480,9 @@ function AddTcModal({
         <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 flex items-center gap-3">
           <div className="flex-1 min-w-0">{error && <p className="text-xs text-red-500">{error}</p>}</div>
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0">취소</button>
-          <button onClick={handleSubmit} disabled={submitting || !selectedModel}
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || !selectedModel || !!ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file)}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 flex-shrink-0">
             {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
             새 실행
@@ -485,6 +510,7 @@ export default function ExperimentDetailPage() {
   const [showModal,  setShowModal]  = useState(false);
   const [models,              setModels]              = useState<ModelVersion[]>([]);
   const [selectedId,          setSelectedId]          = useState<number | null>(null);
+  const [goldJobId,           setGoldJobId]           = useState<number | null>(null);
   const [logs,                setLogs]                = useState<string[]>([]);
   const [logsLoading,         setLogsLoading]         = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -494,7 +520,23 @@ export default function ExperimentDetailPage() {
     const found = loadClientExperiments().find(e => e.id === expId) ?? null;
     setExperiment(found);
     if (found) setUserTcIds(getUserTcJobIds(expId));
+    try {
+      const saved = localStorage.getItem(`${GOLD_MEDAL_KEY_PREFIX}${expId}`);
+      setGoldJobId(saved ? Number(saved) : null);
+    } catch { /* noop */ }
   }, [expId]);
+
+  const toggleGoldJob = (jobId: number) => {
+    setGoldJobId(prev => {
+      const next = prev === jobId ? null : jobId;
+      try {
+        const key = `${GOLD_MEDAL_KEY_PREFIX}${expId}`;
+        if (next == null) localStorage.removeItem(key);
+        else localStorage.setItem(key, String(next));
+      } catch { /* noop */ }
+      return next;
+    });
+  };
 
   // 실행 Map 변경 반영 (실행 추가 후)
   const refreshTcIds = useCallback(() => {
@@ -656,7 +698,7 @@ export default function ExperimentDetailPage() {
   const totalTc = tcJobs.length;
   const selectableModels = models.filter(model => !['QUEUED', 'RUNNING'].includes((model.status ?? '').toUpperCase()));
 
-  // 완료 실행별 요약 지표 + 버전 비교용 최고값 계산
+  // 완료 실행별 요약 지표
   const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
   for (const job of tcJobs) {
     if (job.status.toUpperCase() !== 'COMPLETED') continue;
@@ -664,12 +706,6 @@ export default function ExperimentDetailPage() {
     const pm = metricsOrSample(resultMap[job.job_id]?.metrics, job.job_id, ver);
     tcSummary[job.job_id] = { ...pm.summary, isSample: pm.isSample };
   }
-  const completedSummaries = Object.values(tcSummary);
-  const best = {
-    mae:  completedSummaries.length ? Math.min(...completedSummaries.map(s => s.mae  ?? Infinity)) : null,
-    rmse: completedSummaries.length ? Math.min(...completedSummaries.map(s => s.rmse ?? Infinity)) : null,
-    csi:  completedSummaries.length ? Math.max(...completedSummaries.map(s => s.csi  ?? -Infinity)) : null,
-  };
 
   const titleActions = (
     <button
@@ -755,10 +791,10 @@ export default function ExperimentDetailPage() {
                   ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? null),
               );
               const sum        = tcSummary[job.job_id];
-              const fmtCell = (v: number | null | undefined, isBest: boolean) =>
+              const fmtCell = (v: number | null | undefined) =>
                 v == null
                   ? <span className="text-gray-300">-</span>
-                  : <span className={isBest ? 'font-bold text-emerald-600' : 'text-gray-700'}>{v.toFixed(3)}</span>;
+                  : <span className="text-gray-700">{v.toFixed(3)}</span>;
 
               const mainRow = (
                 <tr
@@ -767,7 +803,28 @@ export default function ExperimentDetailPage() {
                   className={`cursor-pointer border-b border-gray-100 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                 >
                   <td className="px-4 py-3">
-                    <div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation();
+                          toggleGoldJob(job.job_id);
+                        }}
+                        aria-pressed={goldJobId === job.job_id}
+                        aria-label="대표 실행 표시"
+                        title="대표 실행 표시"
+                        className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
+                          goldJobId === job.job_id
+                            ? 'border-amber-300 bg-amber-50'
+                            : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50'
+                        }`}
+                      >
+                        {goldJobId === job.job_id ? (
+                          <span className="text-sm leading-none" aria-hidden="true">🥇</span>
+                        ) : (
+                          <span className="h-2.5 w-2.5 rounded-full border border-gray-300" aria-hidden="true" />
+                        )}
+                      </button>
                       <span className="font-semibold text-gray-800 text-sm leading-tight">{executionName}</span>
                     </div>
                   </td>
@@ -780,13 +837,13 @@ export default function ExperimentDetailPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs tabular-nums">
-                    {fmtCell(sum?.mae, sum?.mae != null && sum.mae === best.mae)}
+                    {fmtCell(sum?.mae)}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs tabular-nums">
-                    {fmtCell(sum?.rmse, sum?.rmse != null && sum.rmse === best.rmse)}
+                    {fmtCell(sum?.rmse)}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs tabular-nums">
-                    {fmtCell(sum?.csi, sum?.csi != null && sum.csi === best.csi)}
+                    {fmtCell(sum?.csi)}
                   </td>
                 </tr>
               );
