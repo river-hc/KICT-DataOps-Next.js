@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, formatExecutionName, type TrainingJob, type Artifact } from '@/lib/api';
-import { loadTcModelMeta } from '@/lib/experimentStore';
+import { loadClientExperiments, loadExpTcMap, loadTcModelMeta } from '@/lib/experimentStore';
+
+const PAGE_SIZE = 5;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
 
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
@@ -33,11 +36,29 @@ function handleDownload(a: Artifact, jobId: number | null) {
   document.body.removeChild(link);
 }
 
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+
+  return items;
+}
+
 export default function Artifacts() {
   const [trainings, setTrainings]         = useState<TrainingJob[]>([]);
   const [artifacts, setArtifacts]         = useState<Artifact[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [page, setPage]                   = useState(1);
   const [loading, setLoading]             = useState(true);
   const [artLoading, setArtLoading]       = useState(false);
 
@@ -63,8 +84,36 @@ export default function Artifacts() {
     }
   };
 
-  const completed = trainings.filter(t => t.status.toUpperCase() === 'COMPLETED');
+  const experimentNameByJobId = useMemo(() => {
+    const map = loadExpTcMap();
+    const names: Record<number, string> = {};
+
+    for (const exp of loadClientExperiments()) {
+      const ids = map[exp.id] ?? exp.tc_job_ids;
+      ids.forEach(id => {
+        names[id] = exp.name;
+      });
+    }
+
+    return names;
+  }, []);
+
+  const completed = trainings
+    .filter(t => t.status.toUpperCase() === 'COMPLETED' && experimentNameByJobId[t.job_id])
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+  const totalPages = Math.max(1, Math.ceil(completed.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedCompleted = completed.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
   const currentUser = getUsername() ?? 'admin';
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const experimentName = (jobId: number): string => {
+    return experimentNameByJobId[jobId] ?? '-';
+  };
 
   const displayRequester = (job: TrainingJob): string => {
     const stored = loadTcModelMeta(job.job_id)?.requester;
@@ -90,39 +139,73 @@ export default function Artifacts() {
   return (
     <Layout>
       {/* 페이지 타이틀은 공통 헤더가 표시 */}
-      <div className="grid grid-cols-2 gap-5">
-        {/* 완료된 실험 목록 */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="grid grid-cols-2 gap-5 h-[460px] min-h-0">
+        {/* 완료된 실행 목록 */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-0">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-700">완료된 실험</span>
+            <span className="text-sm font-semibold text-gray-700">완료된 실행</span>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completed.length}건</span>
           </div>
-          <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {completed.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 실험이 없습니다.</p>
+              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 실행이 없습니다.</p>
             ) : (
-              completed.map(t => (
-                <div
-                  key={t.job_id}
-                  onClick={() => handleRunSelect(t)}
-                  className={`px-5 py-3.5 cursor-pointer transition-colors ${
-                    selectedRunId === t.run_id
-                      ? 'bg-blue-50 border-l-2 border-l-blue-500'
-                      : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <p className="text-sm font-medium text-gray-800 truncate">{formatExecutionName(t.experiment_name)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {displayRequester(t)} · {displayMode(t)}
-                  </p>
-                </div>
-              ))
+              <table className="w-full table-fixed text-sm">
+                <thead className="bg-gray-50 text-xs font-semibold text-gray-500">
+                  <tr>
+                    <th className="w-[24%] px-4 py-2.5 text-left">실험명</th>
+                    <th className="w-[38%] px-4 py-2.5 text-left">실행명</th>
+                    <th className="w-[20%] px-4 py-2.5 text-left">요청자</th>
+                    <th className="w-[18%] px-4 py-2.5 text-left">방식</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {pagedCompleted.map(t => (
+                    <tr
+                      key={t.job_id}
+                      onClick={() => handleRunSelect(t)}
+                      className={`h-[68px] cursor-pointer transition-colors ${
+                        selectedRunId === t.run_id
+                          ? 'bg-blue-50'
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <td className="px-4 py-3 font-medium text-gray-700 truncate">{experimentName(t.job_id)}</td>
+                      <td className="px-4 py-3 text-gray-800 truncate">{formatExecutionName(t.experiment_name)}</td>
+                      <td className="px-4 py-3 text-gray-500 truncate">{displayRequester(t)}</td>
+                      <td className="px-4 py-3 text-gray-500 truncate">{displayMode(t)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
+          </div>
+          <div className="h-12 flex items-center justify-center border-t border-gray-100 px-5 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+              {pagination.map(item => (
+                typeof item === 'number' ? (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setPage(item)}
+                    className={`min-w-5 px-1 py-1 transition-colors ${
+                      item === safePage
+                        ? 'font-semibold text-blue-600 underline underline-offset-4'
+                        : 'text-gray-500 hover:text-blue-600'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ) : (
+                  <span key={item} className="px-1 text-gray-300">...</span>
+                )
+              ))}
+            </div>
           </div>
         </div>
 
         {/* 아티팩트 목록 */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-0">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-700">아티팩트 목록</span>
             {selectedRunId && artifacts.length > 0 && (
@@ -143,9 +226,9 @@ export default function Artifacts() {
               </>
             )}
           </div>
-          <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
+          <div className="divide-y divide-gray-100 flex-1 min-h-0 overflow-y-auto">
             {!selectedRunId ? (
-              <p className="px-5 py-10 text-sm text-center text-gray-400">좌측에서 실험을 선택하세요.</p>
+              <p className="px-5 py-10 text-sm text-center text-gray-400">좌측에서 실행을 선택하세요.</p>
             ) : artLoading ? (
               <div className="flex items-center justify-center py-10">
                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
