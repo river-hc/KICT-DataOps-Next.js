@@ -10,6 +10,7 @@ import { getTraining, getTrainingResult, getTrainingLogs, getUsername, displayUs
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 import { loadClientExperiments, loadExpTcMap, loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
 import { parseMetrics } from '@/lib/metrics';
+import { SkeletonBlock, SkeletonCard } from '@/lib/Skeleton';
 
 // ─── 지표 메타 ────────────────────────────────────────────────────────────────
 
@@ -154,8 +155,18 @@ export default function ExperimentResultDetail() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-24">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="h-full flex flex-col min-h-0">
+          <div className="mb-3 flex-shrink-0">
+            <SkeletonBlock className="h-6 w-64" />
+          </div>
+          <div className="grid grid-cols-[9fr_16fr] grid-rows-[minmax(0,1fr)_8rem] gap-x-4 gap-y-3 flex-1 min-h-0">
+            <SkeletonBlock className="min-h-0" />
+            <div className="grid grid-cols-4 gap-3 min-h-0">
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} lines={3} />)}
+            </div>
+            <SkeletonBlock className="h-full" />
+            <SkeletonBlock className="h-full" />
+          </div>
         </div>
       </Layout>
     );
@@ -182,31 +193,32 @@ export default function ExperimentResultDetail() {
   const resultStatus = (job?.status ?? 'COMPLETED').toUpperCase();
   const isFailedResult = resultStatus === 'FAILED';
 
-  const titlePrefix = (
-    <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+  const title = (
+    <span className="inline-flex items-center gap-2">
       {parentExperiment ? (
         <Link
           href={`/experiments/${parentExperiment.id}`}
-          className="max-w-[48rem] truncate font-medium text-gray-700 hover:text-blue-600 transition-colors"
+          className="max-w-[28rem] truncate font-semibold hover:text-blue-600 transition-colors"
         >
           {parentExperiment.name}
         </Link>
       ) : (
-        <span className="font-medium text-gray-700">-</span>
+        <span>-</span>
       )}
       <span className="text-gray-300">&gt;</span>
       <Link
         href={parentExperiment ? `/experiments/${parentExperiment.id}` : '/experiments'}
-        className="font-semibold text-gray-600 hover:text-blue-600 transition-colors"
+        className="font-semibold hover:text-blue-600 transition-colors"
       >
         실행
       </Link>
       <span className="text-gray-300">&gt;</span>
+      <span className="truncate">실행 결과</span>
     </span>
   );
 
   return (
-    <Layout title="실행 결과" titlePrefix={titlePrefix}>
+    <Layout title={title}>
       <div className="h-full flex flex-col min-h-0">
       {/* 헤더 */}
       <div className="mb-3 flex-shrink-0">
@@ -254,7 +266,15 @@ export default function ExperimentResultDetail() {
       </div>
 
       {isFailedResult ? (
-        <LogPanel logs={logs} className="flex-1 min-h-0" />
+        <div className="flex-1 min-h-0 flex flex-col gap-3">
+          {detail?.error_message && (
+            <div className="flex-shrink-0 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-red-500 mb-1">실패 원인</p>
+              <p className="text-xs text-red-700 font-mono whitespace-pre-wrap break-all">{detail.error_message}</p>
+            </div>
+          )}
+          <LogPanel logs={logs} className="flex-1 min-h-0" />
+        </div>
       ) : (
         <>
       {/* 본문 2열×2행 — 행1: 뷰어 / 정보, 행2: 로그 / 메모 */}
@@ -381,6 +401,12 @@ export default function ExperimentResultDetail() {
                     <span className="text-xs text-gray-500 block mb-0.5">예측 선행시간</span>
                     <span className="inline-block text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded break-words">{forecastLabel}</span>
                   </div>
+                  {detail.params.git_commit && (
+                    <div className="min-w-0">
+                      <span className="text-xs text-gray-500 block mb-0.5">트레이너 코드 버전</span>
+                      <span className="text-xs font-mono text-gray-700 break-words">{detail.params.git_commit}</span>
+                    </div>
+                  )}
                 </div>
               ) : <p className="text-xs text-gray-300">-</p>}
             </div>

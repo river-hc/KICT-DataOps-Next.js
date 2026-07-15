@@ -8,6 +8,7 @@ import {
   // 백엔드 GPU 인식: 당장 미사용 — 주석 처리 (2026-06-12)
   // getSystemStatus, type SystemStatus,
 } from '@/lib/api';
+import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 const POLL_MS      = 1000;
 const HISTORY_MAX  = 120;  // 스파크라인 최대 포인트 수 (1초 × 120 = 약 2분)
@@ -105,9 +106,30 @@ export default function System() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-gray-400">
-          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3" />
-          로딩 중...
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <SkeletonBlock className="h-3 w-28" />
+          </div>
+          <table className="w-full text-sm">
+            <tbody>
+              <SkeletonTableRows rows={2} cols={7} />
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <SkeletonBlock className="h-3 w-24" />
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-5 py-4 space-y-2">
+                <SkeletonBlock className="h-3 w-12" />
+                <SkeletonBlock className="h-1.5 w-full" />
+                <SkeletonBlock className="h-3 w-24" />
+              </div>
+            ))}
+          </div>
         </div>
       </Layout>
     );

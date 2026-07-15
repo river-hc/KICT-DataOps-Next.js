@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, getTrainingResult, formatExecutionName, type TrainingJob, type TrainingResult } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
+import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 const METRIC_META: Record<string, { label: string; max: number; higherBetter: boolean }> = {
   mae:    { label: 'MAE',    max: 6, higherBetter: false },
@@ -59,11 +60,18 @@ export default function ExperimentResults() {
     <Layout>
       {/* 페이지 타이틀은 공통 헤더가 표시 */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <SummaryCard
-          label="완료 실험 수"
-          value={loading ? '...' : `${jobs.length}건`}
-          sub="전체 기간 누계"
-        />
+        {loading ? (
+          <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm space-y-2">
+            <SkeletonBlock className="h-3 w-16" />
+            <SkeletonBlock className="h-6 w-20" />
+          </div>
+        ) : (
+          <SummaryCard
+            label="완료 실험 수"
+            value={`${jobs.length}건`}
+            sub="전체 기간 누계"
+          />
+        )}
         <SummaryCard
           label="최저 MAE"
           value={bestMAE != null ? `${bestMAE.toFixed(3)} mm` : '-'}
@@ -95,6 +103,7 @@ export default function ExperimentResults() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
+              {loading && jobs.length === 0 && <SkeletonTableRows rows={5} cols={8} />}
               {jobs.map(j => {
                 const result       = results[j.job_id];
                 const modelVersion = result?.params?.model_version ?? null;

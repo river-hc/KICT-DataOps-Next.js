@@ -18,8 +18,8 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      // 프로필에서 계정을 변경한 경우 클라이언트에서 override 검증 (백엔드 계정 API 부재)
-      if (hasOverride()) {
+      // 프로필에서 비밀번호를 변경한 계정은 클라이언트에서 override 검증 (백엔드 계정 API 부재)
+      if (hasOverride(username)) {
         if (verifyCredentials(username, password)) {
           const token = btoa(`${username}:${Date.now()}`);
           persistSession(token, username);
@@ -73,7 +73,7 @@ export default function LoginPage() {
         >
           <div className="flex items-center justify-center mb-4">
             <Image
-              src="/Images/KICT_logo.png"
+              src="/Images/KICT_logo (Edited).png"
               alt="KICT 로고"
               width={160}
               height={48}

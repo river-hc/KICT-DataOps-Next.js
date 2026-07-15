@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Layout from '@/lib/Layout';
 import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, formatExecutionName, type TrainingJob, type Artifact } from '@/lib/api';
 import { loadClientExperiments, loadExpTcMap, loadTcModelMeta } from '@/lib/experimentStore';
+import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 const PAGE_SIZE = 5;
 type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
@@ -128,9 +129,21 @@ export default function Artifacts() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-gray-400">
-          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-3" />
-          로딩 중...
+        <div className="grid grid-cols-2 gap-5 h-[460px] min-h-0">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-0">
+            <div className="px-5 py-3 border-b border-gray-100">
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+            <table className="w-full table-fixed text-sm">
+              <tbody>
+                <SkeletonTableRows rows={5} cols={4} />
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-0 p-5 gap-3">
+            <SkeletonBlock className="h-3 w-24" />
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={i} className="h-10 w-full" />)}
+          </div>
         </div>
       </Layout>
     );

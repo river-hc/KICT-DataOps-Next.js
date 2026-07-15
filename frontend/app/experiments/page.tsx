@@ -8,6 +8,7 @@ import {
   loadClientExperiments, saveClientExperiment, loadExpTcMap,
   type ClientExperiment,
 } from '@/lib/experimentStore';
+import { SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 상태 요약 계산 ───────────────────────────────────────────────────────────
 
@@ -202,6 +203,7 @@ export default function ExperimentsPage() {
             </tr>
           </thead>
           <tbody>
+            {loading && allExps.length === 0 && <SkeletonTableRows rows={5} cols={5} />}
             {allExps.map(exp => {
               // 실행 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
               const userIds  = tcMap[exp.id] ?? [];

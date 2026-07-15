@@ -1,10 +1,12 @@
 'use client';
 
 import { ReactNode, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import Header, { resolveTitle } from './Header';
+import { resolveTitle } from './Header';
 import Footer from './Footer';
+import UserPopup from './UserPopup';
 
 const THEME = process.env.NEXT_PUBLIC_THEME;
 
@@ -95,13 +97,11 @@ interface LayoutProps {
   title?: ReactNode;
   /** 페이지 타이틀 카드 우측 액션 영역 */
   titleActions?: ReactNode;
-  /** 페이지 타이틀 카드 바깥 상단 영역 */
-  titlePrefix?: ReactNode;
 }
 
 // ─── 사이드바 레이아웃 (포트 3000·3001) ──────────────────────────────────────
 
-function LayoutSidebar({ children, fullHeight = false, title, titleActions, titlePrefix }: LayoutProps) {
+function LayoutSidebar({ children, fullHeight = false, title, titleActions }: LayoutProps) {
   const pathname = usePathname();
   const [open, setOpen]           = useState(true);
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>({ '학습': true });
@@ -123,31 +123,37 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions, titl
     // 높이는 100dvh(동적 viewport) 우선 — 해상도 변경 시 100vh 오차로 푸터 아래 여백이 생기는 것 방지.
     // dvh 미지원 브라우저는 h-screen(100vh)으로 폴백.
     <div
-      className="h-screen flex overflow-hidden"
+      className="h-screen flex flex-col overflow-hidden"
       style={{ background: 'var(--layout-bg)', height: '100dvh' }}
     >
+
+      {/* 전체 폭 상단 바 — 로고가 흰색이라 남색 배경이 필요함 */}
+      <div className="h-16 flex-shrink-0 flex items-center" style={{ background: '#003082', boxShadow: '0 1px 4px rgba(0,0,0,0.18)' }}>
+        <Link
+          href="/dashboard"
+          className={`${open ? 'w-56' : 'w-16'} h-full flex items-center justify-center flex-shrink-0 transition-all duration-300`}
+          style={{ borderRight: '1px solid rgba(255,255,255,0.2)', padding: open ? '0 16px' : '0' }}
+          aria-label="대시보드로 이동"
+        >
+          {open ? (
+            <Image src="/Images/KICT_logo.png" alt="KICT DataOps" width={168} height={39} style={{ objectFit: 'contain' }} priority />
+          ) : (
+            <Image src="/Images/KICT_logo (Edited).png" alt="KICT" width={31} height={19} style={{ objectFit: 'contain' }} priority />
+          )}
+        </Link>
+        <div className="flex-1 flex items-center justify-end px-6">
+          <UserPopup />
+        </div>
+      </div>
+
+      {/* 사이드바 + 콘텐츠 */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* 사이드바 */}
       <aside
         className={`${open ? 'w-56' : 'w-16'} relative transition-all duration-300 flex flex-col flex-shrink-0`}
         style={{ background: 'var(--sidebar-bg)', borderRight: '1px solid var(--sidebar-border)' }}
       >
-        {/* 로고 — 헤더와 동일 높이(h-16)로 하단 경계선 일치 */}
-        <div className="h-16 flex-shrink-0 flex items-center px-4 border-b" style={{ borderColor: 'var(--sidebar-border)' }}>
-          {open && (
-            <div className="flex-1 min-w-0 flex items-center">
-              <Link
-                href="/dashboard"
-                className="text-[24px] leading-8 font-semibold whitespace-nowrap transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 rounded"
-                style={{ color: 'var(--logo-text)' }}
-                aria-label="대시보드로 이동"
-              >
-                KICT DataOps
-              </Link>
-            </div>
-          )}
-        </div>
-
         <button
           onClick={() => setOpen(v => !v)}
           className="absolute -right-3 top-1/2 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-md transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-800"
@@ -271,34 +277,24 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions, titl
       {/* 오른쪽 패널 */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* 전역 헤더 (lib/Header.tsx) — viewport 최상단 고정 */}
-        <Header />
-
         {/* 바디 — 콘텐츠가 모서리에 붙지 않도록 모든 페이지 공통 p-8 여백 */}
         <main className={`flex-1 min-h-0 ${fullHeight ? 'overflow-hidden' : 'p-8 overflow-auto'}`}>
           {fullHeight ? children : (
-            <>
-              {titlePrefix && (
-                <div className="mb-2">
-                  {titlePrefix}
-                </div>
-              )}
-              <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-                <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
-                  <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
-                    {titleNode}
-                  </h1>
-                  {titleActions && (
-                    <div className="flex flex-shrink-0 items-center gap-2">
-                      {titleActions}
-                    </div>
-                  )}
-                </div>
-                <div className="p-5">
-                  {children}
-                </div>
+            <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-4">
+                <h1 className="text-xl font-semibold" style={{ color: 'var(--header-text)' }}>
+                  {titleNode}
+                </h1>
+                {titleActions && (
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {titleActions}
+                  </div>
+                )}
               </div>
-            </>
+              <div className="p-5">
+                {children}
+              </div>
+            </div>
           )}
         </main>
 
@@ -306,13 +302,14 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions, titl
         <Footer />
 
       </div>
+      </div>
     </div>
   );
 }
 
-export default function Layout({ children, fullHeight = false, title, titleActions, titlePrefix }: LayoutProps) {
+export default function Layout({ children, fullHeight = false, title, titleActions }: LayoutProps) {
   return (
-    <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions} titlePrefix={titlePrefix}>
+    <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions}>
       {children}
     </LayoutSidebar>
   );

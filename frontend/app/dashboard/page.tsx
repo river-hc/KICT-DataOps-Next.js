@@ -7,7 +7,6 @@ import DashboardExplorer from '@/lib/DashboardExplorer';
 import DashboardKanban   from '@/lib/DashboardKanban';
 import { ACCOUNT_PROFILE_EVENT } from '@/lib/account';
 import {
-  getTrainings,
   getExperimentJobs,
   getTrainingResult,
   displayUsername,
@@ -16,6 +15,7 @@ import {
 } from '@/lib/api';
 import { metricsOrSample } from '@/lib/metrics';
 import { loadClientExperiments, loadExpTcMap } from '@/lib/experimentStore';
+import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
 
@@ -304,7 +304,6 @@ function TcResultsTable({
 
 function Dashboard() {
   const [expJobs,      setExpJobs]      = useState<TrainingJob[]>([]);
-  const [trainJobs,    setTrainJobs]    = useState<TrainingJob[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
@@ -313,14 +312,9 @@ function Dashboard() {
   const prevCompletedIdsRef = useRef('');
 
   const fetchAll = useCallback(async () => {
-    await Promise.all([
-      getExperimentJobs()
-        .then(data => setExpJobs(data))
-        .catch(() => setExpJobs([])),
-      getTrainings()
-        .then(data => setTrainJobs(data))
-        .catch(() => setTrainJobs([])),
-    ]);
+    await getExperimentJobs()
+      .then(data => setExpJobs(data))
+      .catch(() => setExpJobs([]));
   }, []);
 
   useEffect(() => {
@@ -383,16 +377,32 @@ function Dashboard() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center py-20 text-gray-400">로딩 중...</div>
+        <div className="h-[clamp(340px,calc(100dvh-18.5rem),620px)] flex gap-4 items-stretch overflow-hidden">
+          <div className="w-[34%] min-w-[280px] bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-4">
+            <SkeletonBlock className="h-3 w-24" />
+            <div className="flex-1 flex items-center justify-center">
+              <SkeletonBlock className="h-40 w-40 rounded-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonBlock key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 min-w-0 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-3">
+            <SkeletonBlock className="h-4 w-28" />
+            <table className="w-full text-sm">
+              <tbody>
+                <SkeletonTableRows rows={6} cols={7} />
+              </tbody>
+            </table>
+          </div>
+        </div>
       </Layout>
     );
   }
 
-  // expJobs·trainJobs 모두 /trainings를 조회하므로 job_id 기준으로 중복 제거
-  const allJobs = Array.from(
-    new Map([...expJobs, ...trainJobs].map(j => [j.job_id, j])).values()
-  );
-  const todayJobs = allJobs.filter(isTodayJob);
+  const todayJobs = expJobs.filter(isTodayJob);
   return (
     <Layout>
       <div className="h-[clamp(340px,calc(100dvh-18.5rem),620px)] flex gap-4 items-stretch overflow-hidden">

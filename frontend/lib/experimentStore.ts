@@ -79,6 +79,16 @@ export function getUserTcJobIds(expId: number): number[] {
   return loadExpTcMap()[expId] ?? [];
 }
 
+/** 실행 삭제 시 실험 매핑에서도 제거 */
+export function removeTcFromExpMap(expId: number, jobId: number): void {
+  const map = loadExpTcMap();
+  const existing = map[expId] ?? [];
+  if (existing.includes(jobId)) {
+    map[expId] = existing.filter(id => id !== jobId);
+    localStorage.setItem(EXP_TC_MAP_KEY, JSON.stringify(map));
+  }
+}
+
 // ─── TC 메모 (백엔드가 experiment_memo를 응답하지 않아 클라이언트에 보관) ──────
 
 export function saveTcMemo(jobId: number, memo: string): void {

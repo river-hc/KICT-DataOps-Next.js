@@ -1,7 +1,3 @@
-'use client';
-
-import UserPopup from './UserPopup';
-
 // 라우트별 헤더 타이틀 — 사이드바 항목 + 사이드바 미노출 상세 라우트
 // 정확히 일치 또는 하위 경로(`/경로/...`)면 매칭
 const ROUTE_TITLES: [string, string][] = [
@@ -23,22 +19,4 @@ export function resolveTitle(pathname: string | null): string {
     ([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
   return match ? match[1] : 'DataOps';
-}
-
-/** 전역 헤더 — viewport 최상단 고정 (사이드바 로고 영역과 동일 높이 h-16) */
-export default function Header() {
-  return (
-    <header
-      className="h-16 flex-shrink-0 border-b px-6 flex items-center"
-      style={{
-        background:  'var(--header-bg)',
-        borderColor: 'var(--header-border)',
-        boxShadow:   '0 1px 3px rgba(0,0,0,0.06)',
-      }}
-    >
-      <div className="flex-1 flex items-center justify-end">
-        <UserPopup />
-      </div>
-    </header>
-  );
 }

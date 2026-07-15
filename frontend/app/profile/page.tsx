@@ -4,7 +4,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import Layout from '@/lib/Layout';
 import {
   getDisplayUsername,
-  getLoginUsername,
+  getCurrentUsername,
   changeNickname,
   changePassword,
   verifyCurrentPassword,
@@ -35,7 +35,7 @@ export default function ProfilePage() {
     const name = getDisplayUsername();
     setCurrentName(name);
     setNewName(name);
-    setLoginName(getLoginUsername());
+    setLoginName(getCurrentUsername());
   }, []);
 
   const initial = currentName.charAt(0).toUpperCase();
@@ -80,7 +80,7 @@ export default function ProfilePage() {
       return;
     }
     setPwSaving(true);
-    changePassword(newPw);
+    changePassword(getCurrentUsername(), newPw);
     setPwSaving(false);
     setCurPw('');
     setNewPw('');

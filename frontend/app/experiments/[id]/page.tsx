@@ -5,19 +5,20 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getExperimentJobs, getModels, getTrainingLogs, getTrainingResult,
+  getExperimentJobs, getModels, getTrainingLogs, getTrainingResult, deleteTraining,
   createExperimentJob,
   fileToBase64, calculateTimestamp, getUsername, displayUsername, formatExecutionName,
   type TrainingJob, type AscFileInput, type ModelVersion,
   type TrainingResult,
 } from '@/lib/api';
 import {
-  loadClientExperiments, addTcToExpMap, getUserTcJobIds, saveTcMemo,
+  loadClientExperiments, addTcToExpMap, getUserTcJobIds, removeTcFromExpMap, saveTcMemo,
   loadTcModelMeta, saveTcModelMeta,
   type ClientExperiment,
 } from '@/lib/experimentStore';
 import { mergeRegisteredModels } from '@/lib/modelStore';
 import { metricsOrSample } from '@/lib/metrics';
+import { SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
 
@@ -212,6 +213,70 @@ function ProgressBar({ progress, currentEpoch, totalEpochs }: {
       <span className="text-xs tabular-nums w-7 text-right flex-shrink-0 text-gray-500">
         {isIndet ? <span className="text-gray-400 tracking-widest">···</span> : `${pct}%`}
       </span>
+    </div>
+  );
+}
+
+// ─── 실행 비교 모달 ──────────────────────────────────────────────────────────
+
+interface CompareRow { label: string; values: (job: TrainingJob, result?: TrainingResult) => string }
+
+function CompareModal({ jobs, resultMap, onClose }: {
+  jobs: TrainingJob[];
+  resultMap: Record<number, TrainingResult>;
+  onClose: () => void;
+}) {
+  const rows: CompareRow[] = [
+    { label: '실행 이름',   values: job => formatExecutionName(job.experiment_name, resultMap[job.job_id]?.params.run_datetime) },
+    { label: '상태',        values: job => job.status },
+    { label: '모델 버전',   values: job => resultMap[job.job_id]?.params.model_version ?? '-' },
+    { label: '등록일',      values: job => fmtDt(job.created_at) },
+    { label: '소요시간',    values: job => fmtDur(job.started_at, job.finished_at) },
+    { label: 'MAE',         values: (_job, r) => r?.metrics.mae != null ? Number(r.metrics.mae).toFixed(3) : '-' },
+    { label: 'RMSE',        values: (_job, r) => r?.metrics.rmse != null ? Number(r.metrics.rmse).toFixed(3) : '-' },
+    { label: 'CSI',         values: (_job, r) => r?.metrics.csi != null ? Number(r.metrics.csi).toFixed(3) : '-' },
+    { label: 'Git commit',  values: job => resultMap[job.job_id]?.params.git_commit ?? '-' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-4xl mx-4 max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-lg font-bold text-gray-900">실행 비교 ({jobs.length}개)</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
+            <svg viewBox="0 0 16 16" className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <path d="M2 2l12 12M14 2L2 14" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6 overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">항목</th>
+                {jobs.map(job => (
+                  <th key={job.job_id} className="text-left px-3 py-2 text-xs font-semibold text-gray-700 whitespace-nowrap">
+                    Job #{job.job_id}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={row.label} className="border-t border-gray-100">
+                  <td className="px-3 py-2.5 text-xs font-semibold text-gray-500 whitespace-nowrap">{row.label}</td>
+                  {jobs.map(job => (
+                    <td key={job.job_id} className="px-3 py-2.5 font-mono text-xs text-gray-800 whitespace-nowrap">
+                      {row.values(job, resultMap[job.job_id])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -514,6 +579,12 @@ export default function ExperimentDetailPage() {
   const [logs,                setLogs]                = useState<string[]>([]);
   const [logsLoading,         setLogsLoading]         = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const prevJobStatusRef = useRef<Record<number, string>>({});
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'COMPLETED' | 'FAILED' | 'RUNNING' | 'QUEUED'>('ALL');
+  const [sortBy,        setSortBy]      = useState<'latest' | 'mae' | 'rmse' | 'csi'>('latest');
+  const [compareIds,    setCompareIds]  = useState<Set<number>>(new Set());
+  const [showCompare,   setShowCompare] = useState(false);
+  const [deletingId,    setDeletingId]  = useState<number | null>(null);
 
   // 실험 환경 로드 (클라이언트 localStorage 기준)
   useEffect(() => {
@@ -576,6 +647,27 @@ export default function ExperimentDetailPage() {
     const id = setInterval(() => getExperimentJobs().then(setRealJobs).catch(() => {}), POLL_MS);
     return () => clearInterval(id);
   }, [realJobs, userTcIds]);
+
+  // 브라우저 알림 권한 요청 (최초 1회)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // 완료/실패 전환 시 브라우저 알림
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return;
+    for (const job of tcJobs) {
+      const prevStatus = prevJobStatusRef.current[job.job_id];
+      const status = job.status.toUpperCase();
+      if (prevStatus && ['RUNNING', 'QUEUED'].includes(prevStatus) && ['COMPLETED', 'FAILED'].includes(status)) {
+        const name = formatExecutionName(job.experiment_name, resultMap[job.job_id]?.params.run_datetime);
+        new Notification(status === 'COMPLETED' ? '실행 완료' : '실행 실패', { body: name });
+      }
+      prevJobStatusRef.current[job.job_id] = status;
+    }
+  }, [tcJobs, resultMap]);
 
   // 모델 목록 로드
   useEffect(() => {
@@ -707,6 +799,49 @@ export default function ExperimentDetailPage() {
     tcSummary[job.job_id] = { ...pm.summary, isSample: pm.isSample };
   }
 
+  // 상태 필터 + 정렬 (MAE/RMSE는 낮을수록, CSI는 높을수록 좋은 실행)
+  const visibleJobs = tcJobs
+    .filter(job => statusFilter === 'ALL' || job.status.toUpperCase() === statusFilter)
+    .slice()
+    .sort((a, b) => {
+      if (sortBy === 'latest') return (b.created_at ?? '').localeCompare(a.created_at ?? '');
+      const av = tcSummary[a.job_id]?.[sortBy];
+      const bv = tcSummary[b.job_id]?.[sortBy];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sortBy === 'csi' ? bv - av : av - bv;
+    });
+
+  const toggleCompare = (jobId: number) => {
+    setCompareIds(prev => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId); else next.add(jobId);
+      return next;
+    });
+  };
+
+  const handleDeleteJob = async (jobId: number) => {
+    if (!window.confirm('이 실행을 삭제할까요? 결과 파일도 함께 삭제되며 되돌릴 수 없습니다.')) return;
+    setDeletingId(jobId);
+    try {
+      await deleteTraining(jobId);
+      removeTcFromExpMap(expId, jobId);
+      setCompareIds(prev => {
+        const next = new Set(prev);
+        next.delete(jobId);
+        return next;
+      });
+      if (selectedId === jobId) setSelectedId(null);
+      refreshTcIds();
+      fetchJobs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '삭제에 실패했습니다.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const titleActions = (
     <button
       onClick={() => setShowModal(true)}
@@ -719,33 +854,42 @@ export default function ExperimentDetailPage() {
     </button>
   );
 
-  const titlePrefix = (
-    <span className="inline-flex items-center gap-2 text-sm text-gray-500">
+  const title = (
+    <span className="inline-flex items-center gap-2">
       <button
         type="button"
         onClick={() => router.push('/experiments')}
-        className="font-semibold text-gray-600 hover:text-blue-600 transition-colors"
+        className="font-semibold hover:text-blue-600 transition-colors"
       >
         실험
       </button>
       <span className="text-gray-300">&gt;</span>
       <Link
         href={`/experiments/${experiment.id}`}
-        className="max-w-[48rem] truncate font-medium text-gray-700 hover:text-blue-600 transition-colors"
+        className="max-w-[28rem] truncate font-semibold hover:text-blue-600 transition-colors"
       >
         {experiment.name}
       </Link>
       <span className="text-gray-300">&gt;</span>
+      <span className="truncate">실행</span>
     </span>
   );
 
   return (
-    <Layout title="실행" titleActions={titleActions} titlePrefix={titlePrefix}>
+    <Layout title={title} titleActions={titleActions}>
       {showModal && (
         <AddTcModal
           onClose={() => setShowModal(false)}
           onSubmit={handleSubmitTc}
           models={selectableModels}
+        />
+      )}
+
+      {showCompare && (
+        <CompareModal
+          jobs={tcJobs.filter(job => compareIds.has(job.job_id))}
+          resultMap={resultMap}
+          onClose={() => setShowCompare(false)}
         />
       )}
 
@@ -755,25 +899,59 @@ export default function ExperimentDetailPage() {
 
       {/* 실행 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-gray-700">실행 목록</span>
           </div>
-          {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 focus:outline-none focus:border-blue-300"
+            >
+              <option value="ALL">전체 상태</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="FAILED">FAILED</option>
+              <option value="RUNNING">RUNNING</option>
+              <option value="QUEUED">QUEUED</option>
+            </select>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as typeof sortBy)}
+              className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 focus:outline-none focus:border-blue-300"
+            >
+              <option value="latest">최신순</option>
+              <option value="mae">MAE 낮은순</option>
+              <option value="rmse">RMSE 낮은순</option>
+              <option value="csi">CSI 높은순</option>
+            </select>
+            {compareIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowCompare(true)}
+                disabled={compareIds.size < 2}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-40"
+              >
+                비교하기 ({compareIds.size})
+              </button>
+            )}
+            {loading && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+          </div>
         </div>
 
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['실행 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
-                <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
+              {['', '실행 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI', '삭제'].map((h, i) => (
+                <th key={i} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {tcJobs.flatMap(job => {
+            {loading && visibleJobs.length === 0 && <SkeletonTableRows rows={4} cols={10} />}
+            {visibleJobs.flatMap(job => {
               const s          = job.status.toUpperCase();
               const isSelected = job.job_id === selectedId;
               const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
@@ -802,6 +980,17 @@ export default function ExperimentDetailPage() {
                   onClick={toggle}
                   className={`cursor-pointer border-b border-gray-100 transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                 >
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {s === 'COMPLETED' && (
+                      <input
+                        type="checkbox"
+                        checked={compareIds.has(job.job_id)}
+                        onChange={() => toggleCompare(job.job_id)}
+                        className="accent-blue-600"
+                        aria-label="비교에 추가"
+                      />
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-0">
                       <button
@@ -845,6 +1034,22 @@ export default function ExperimentDetailPage() {
                   <td className="px-4 py-3 font-mono text-xs tabular-nums">
                     {fmtCell(sum?.csi)}
                   </td>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {s !== 'RUNNING' && s !== 'QUEUED' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteJob(job.job_id)}
+                        disabled={deletingId === job.job_id}
+                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                        title="실행 삭제"
+                        aria-label="실행 삭제"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.9} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M10 11v6m4-6v6M9 7l1-2h4l1 2m-8 0 1 13h8l1-13" />
+                        </svg>
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
 
@@ -852,7 +1057,7 @@ export default function ExperimentDetailPage() {
 
               const detailRow = (
                 <tr key={`${job.job_id}-detail`}>
-                  <td colSpan={8} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
+                  <td colSpan={10} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mb-3">
                       {[
                         { label: '등록일',    value: fmtDt(job.created_at) },
@@ -874,6 +1079,13 @@ export default function ExperimentDetailPage() {
                         </div>
                       )}
                     </div>
+
+                    {s === 'FAILED' && job.error_message && (
+                      <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-red-500 mb-1">실패 원인</p>
+                        <p className="text-xs text-red-700 font-mono whitespace-pre-wrap break-all">{job.error_message}</p>
+                      </div>
+                    )}
 
                     {(s === 'COMPLETED' || s === 'FAILED' || s === 'CANCELED') && (
                       <Link

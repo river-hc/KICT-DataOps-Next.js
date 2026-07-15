@@ -13,6 +13,7 @@ import {
   isDemoMode,
   readDemoJobs,
 } from './demoData';
+import { getDisplayUsername } from './account';
 
 const BASE_URL = '/api/v1';
 
@@ -32,6 +33,7 @@ export interface TrainingJob {
   current_epoch: number | null;
   total_epochs: number | null;
   run_id: number | null;
+  error_message?: string | null;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -52,6 +54,7 @@ export interface TrainingResultParams {
   output_dir?: string | null;
   // 실험 등록 시 작성한 메모 — 백엔드 응답 노출 대기 (request.md 항목 9)
   experiment_memo?: string | null;
+  git_commit?: string | null;
 }
 
 export interface TrainingMetricSources {
@@ -73,6 +76,7 @@ export interface TrainingResult {
   metric_sources?: TrainingMetricSources | null;
   artifacts: Record<string, unknown>[];
   asc_urls: Record<number, string>;
+  error_message?: string | null;
 }
 
 export interface Experiment {
@@ -116,9 +120,33 @@ export interface ModelVersion {
   model_name: string;
   version: string;
   status: string;
-  metrics: Record<string, unknown> | null;
+  metrics: {
+    architecture?: string | null;
+    runner_version?: string;
+    source?: string;
+    model_file_pattern?: string | null;
+    forecast_steps?: number[];
+    validation_status?: 'READY' | 'MISSING_FILES' | 'INVALID' | 'UNTESTED' | string;
+    file_count?: number;
+    expected_file_count?: number;
+    missing_files?: string[];
+    validated_at?: string;
+    latest_file_mtime?: string;
+    [key: string]: unknown;
+  } | null;
   model_path: string | null;
   created_at: string | null;
+}
+
+export interface ModelCandidate {
+  version: string;
+  model_name: string;
+  model_path: string;
+  architecture: string;
+  validation_status: 'READY' | 'MISSING_FILES' | 'UNTESTED' | string;
+  file_count: number;
+  expected_file_count: number;
+  missing_files: string[];
 }
 
 export interface GpuInfo {
@@ -173,7 +201,7 @@ export function getToken(): string | null {
 export function getUsername(): string | null {
   if (typeof window === 'undefined') return null;
   if (!localStorage.getItem('token')) return null;
-  return localStorage.getItem('nickname') || localStorage.getItem('username') || null;
+  return getDisplayUsername();
 }
 
 export function displayUsername(value?: string | null): string {
@@ -308,6 +336,10 @@ export async function getTraining(jobId: number): Promise<TrainingJob> {
     return job;
   }
   return request<TrainingJob>(`/trainings/${jobId}`);
+}
+
+export async function deleteTraining(jobId: number): Promise<void> {
+  return request<void>(`/trainings/${jobId}`, { method: 'DELETE' });
 }
 
 export async function getTrainingLogs(jobId: number): Promise<TrainingLog> {
@@ -520,51 +552,55 @@ export async function archiveModel(id: number): Promise<ModelVersion> {
   return request<ModelVersion>(`/models/${id}/archive`, { method: 'POST' });
 }
 
-// 모델 등록 — multipart/form-data 전송이라 request() 헬퍼(JSON Content-Type 고정) 사용 불가.
-// Content-Type을 직접 지정하지 않아야 브라우저가 boundary를 자동 설정함 (request_model.md 참조)
-export async function registerModel(form: {
+export async function scanModels(): Promise<ModelVersion[]> {
+  return request<ModelVersion[]>('/models/scan', { method: 'POST' });
+}
+
+export async function validateModel(id: number): Promise<ModelVersion> {
+  return request<ModelVersion>(`/models/${id}/validate`, { method: 'POST' });
+}
+
+export async function updateModel(id: number, body: { model_name?: string; version_label?: string }): Promise<ModelVersion> {
+  return request<ModelVersion>(`/models/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export async function deleteModel(id: number): Promise<void> {
+  return request<void>(`/models/${id}`, { method: 'DELETE' });
+}
+
+export async function getModelInfo(): Promise<{ model_base_path: string }> {
+  return request<{ model_base_path: string }>('/models/info');
+}
+
+export async function getModelCandidates(): Promise<ModelCandidate[]> {
+  return request<ModelCandidate[]>('/models/candidates');
+}
+
+export async function registerModelVersions(versions: string[]): Promise<ModelVersion[]> {
+  return request<ModelVersion[]>('/models/register', {
+    method: 'POST',
+    body: JSON.stringify({ versions }),
+  });
+}
+
+export async function uploadModelFile(form: {
+  files: File[];
   versionLabel: string;
+  modelName: string;
   architecture: 'single' | 'multi';
-  modelFile: File;
-  memo?: string;
 }): Promise<ModelVersion> {
-  if (isDemoMode()) {
-    return {
-      id: Date.now(),
-      experiment_id: 0,
-      run_id: null,
-      model_name: 'KICT-RAIN-AI',
-      version: form.versionLabel,
-      status: 'CREATED',
-      metrics: {
-        architecture: form.architecture,
-        file_count: form.architecture === 'single' ? 1 : 18,
-        registered_from: 'demo',
-      },
-      model_path: form.modelFile.name,
-      created_at: new Date().toISOString(),
-    };
-  }
   const fd = new FormData();
+  for (const f of form.files) fd.append('files', f);
   fd.append('version_label', form.versionLabel);
+  fd.append('model_name', form.modelName);
   fd.append('architecture', form.architecture);
-  fd.append('model_file', form.modelFile);
-  if (form.memo) fd.append('memo', form.memo);
 
   const token = getToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}/models`, { method: 'POST', headers, body: fd });
-
+  const res = await fetch(`${BASE_URL}/models/upload`, { method: 'POST', headers, body: fd });
   if (!res.ok) {
-    if (res.status === 401) {
-      if (typeof window !== 'undefined') window.location.href = '/login';
-      throw new Error('인증이 필요합니다. 다시 로그인해주세요.');
-    }
-    if (res.status === 404 || res.status === 405) {
-      throw new Error('모델 등록 API가 아직 백엔드에 구현되지 않았습니다.');
-    }
     const body = await res.json().catch(() => null);
     const detail = body?.detail;
     const message = Array.isArray(detail)
@@ -572,7 +608,6 @@ export async function registerModel(form: {
       : (detail ?? `${res.status} ${res.statusText}`);
     throw new Error(message);
   }
-
   return res.json();
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { findAccount } from '@/lib/account';
 
 interface LoginRequest {
   username: string;
@@ -11,14 +12,12 @@ interface LoginResponse {
   username: string;
 }
 
-const DEFAULT_USERNAME = process.env.NEXT_PUBLIC_AUTH_USERNAME || 'KICT-001';
-const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_AUTH_PASSWORD || 'kict001';
-
 export async function POST(req: Request) {
   const body = (await req.json()) as LoginRequest;
 
-  // Simple authentication (for development/demo purposes)
-  if (body.username === DEFAULT_USERNAME && body.password === DEFAULT_PASSWORD) {
+  // 고정 계정 목록(ACCOUNTS) 기준 인증 — 비밀번호를 변경한 계정은 클라이언트에서 override 검증하므로 여기까지 오지 않음
+  const account = findAccount(body.username);
+  if (account && body.password === account.password) {
     const token = Buffer.from(`${body.username}:${Date.now()}`).toString('base64');
 
     return NextResponse.json({
