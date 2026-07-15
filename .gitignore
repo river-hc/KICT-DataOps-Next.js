@@ -42,18 +42,18 @@ postgres-data/
 Thumbs.db
 
 # Frontend
-frontend/node_modules/
-frontend/.next/
-frontend/.env*
-frontend/next-env.d.ts
-frontend/package-lock.json
-frontend/public
+node_modules/
+.next/
+.env*
+next-env.d.ts
+package-lock.json
+public
 
 # ASC 임시 데이터 (테스트용 원시 파일, 배포 제외)
-frontend/asc_data/
-frontend/public/asc_data/
-frontend/app/training-results/
-frontend/public/mock/
+asc_data/
+public/asc_data/
+app/training-results/
+public/mock/
 
 BACKEND_REQUESTS.md
 API.md
@@ -67,4 +67,4 @@ BACKEND_HANDOFF_SUMMARY.md
 BACKEND_INPUT_PARAMS_REQUEST.jsonc
 BACKEND_REQUIRED_CHANGES.md
 
-frontend/tsconfig.tsbuildinfo
+tsconfig.tsbuildinfo

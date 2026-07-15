@@ -3,13 +3,13 @@ services:
   # ── Design A: Sidebar + Tabs + Accordion (Light Blue) ─── port 3000
   frontend-a:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile.dev
     container_name: kict-frontend-a
     ports:
       - "3000:3000"
     volumes:
-      - ./frontend:/app
+      - .:/app
       - /app/node_modules   # 컨테이너 node_modules 유지
       - /app/.next          # 컨테이너별 독립 빌드 캐시 (테마 격리)
     environment:
@@ -21,13 +21,13 @@ services:
   # ── Design B: Sidebar + List Panel + Detail Panel (Dark Pro) ─── port 3001
   frontend-b:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile.dev
     container_name: kict-frontend-b
     ports:
       - "3001:3000"
     volumes:
-      - ./frontend:/app
+      - .:/app
       - /app/node_modules
       - /app/.next
     environment:
@@ -39,13 +39,13 @@ services:
   # ── Design C: Top Nav + Kanban + Drawer (Modern Violet) ─── port 3002
   frontend-c:
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile.dev
     container_name: kict-frontend-c
     ports:
       - "3002:3000"
     volumes:
-      - ./frontend:/app
+      - .:/app
       - /app/node_modules
       - /app/.next
     environment:
