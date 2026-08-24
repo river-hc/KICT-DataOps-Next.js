@@ -15,6 +15,23 @@ const METRIC_META: Record<string, { label: string; max: number; higherBetter: bo
   csi_30: { label: 'CSI 30', max: 1, higherBetter: true  },
 };
 
+const PAGE_SIZE = 10;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+  return items;
+}
+
 function SummaryCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 shadow-sm">
@@ -30,6 +47,7 @@ export default function ExperimentResults() {
   const [jobs, setJobs]       = useState<TrainingJob[]>([]);
   const [results, setResults] = useState<Record<number, TrainingResult>>({});
   const [loading, setLoading] = useState(true);
+  const [page,    setPage]    = useState(1);
 
   useEffect(() => {
     getExperimentJobs()
@@ -55,6 +73,13 @@ export default function ExperimentResults() {
 
   const bestMAE   = allMetrics.length ? Math.min(...allMetrics.map(m => m.mae    ?? Infinity))  : null;
   const bestCSI10 = allMetrics.length ? Math.max(...allMetrics.map(m => m.csi_10 ?? -Infinity)) : null;
+
+  const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedJobs = jobs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
+
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   return (
     <Layout>
@@ -104,7 +129,7 @@ export default function ExperimentResults() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading && jobs.length === 0 && <SkeletonTableRows rows={5} cols={8} />}
-              {jobs.map(j => {
+              {pagedJobs.map(j => {
                 const result       = results[j.job_id];
                 const modelVersion = result?.params?.model_version ?? null;
                 const m            = result?.metrics;
@@ -113,7 +138,7 @@ export default function ExperimentResults() {
                   <tr
                     key={j.job_id}
                     onClick={() => router.push(`/experiment-results/${j.job_id}`)}
-                    className="cursor-pointer transition-colors hover:bg-blue-50"
+                    className="h-[52px] cursor-pointer transition-colors hover:bg-blue-50"
                   >
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-xs">
                       <span className="block truncate">{formatExecutionName(j.experiment_name, results[j.job_id]?.params.run_datetime)}</span>
@@ -149,10 +174,40 @@ export default function ExperimentResults() {
                   </tr>
                 );
               })}
+              {jobs.length > PAGE_SIZE && pagedJobs.length < PAGE_SIZE &&
+                Array.from({ length: PAGE_SIZE - pagedJobs.length }).map((_, i) => (
+                  <tr key={`filler-${i}`} className="h-[52px]">
+                    <td colSpan={8} className="px-4 py-3">&nbsp;</td>
+                  </tr>
+                ))}
             </tbody>
           </table>
           {!loading && jobs.length === 0 && (
             <div className="py-16 text-center text-gray-400 text-sm">완료된 실험이 없습니다.</div>
+          )}
+          {jobs.length > PAGE_SIZE && (
+            <div className="h-12 flex items-center justify-center border-t border-gray-100 px-5 text-xs text-gray-500">
+              <div className="flex items-center gap-2">
+                {pagination.map(item => (
+                  typeof item === 'number' ? (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setPage(item)}
+                      className={`min-w-5 px-1 py-1 transition-colors ${
+                        item === safePage
+                          ? 'font-semibold text-blue-600 underline underline-offset-4'
+                          : 'text-gray-500 hover:text-blue-600'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  ) : (
+                    <span key={item} className="px-1 text-gray-300">...</span>
+                  )
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

@@ -349,8 +349,8 @@ export default function ExperimentResultDetail() {
             </div>
           )}
 
-          {/* 카드 1행 배치: 성능 지표 · 모델 설정 · 검증 데이터 · 테스트케이스 일정 */}
-          <div className="grid grid-cols-4 gap-3 flex-1 min-h-0">
+          {/* 카드 1행 배치: 성능 지표 · 모델 설정 */}
+          <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
 
             {/* 성능 지표 — 전체 단일 값 (MAE / RMSE / CSI) */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 min-w-0 min-h-0 h-full overflow-y-auto">
@@ -380,6 +380,10 @@ export default function ExperimentResultDetail() {
                     }`}>{detail.params.model_version}</span>
                   </div>
                   <div className="min-w-0">
+                    <span className="text-xs text-gray-500 block mb-0.5">생성자</span>
+                    <span className="text-xs font-medium text-gray-900 block break-words">{displayRequester}</span>
+                  </div>
+                  <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">운용 시점</span>
                     <span className="text-xs font-medium text-gray-900 block break-words">
                       {detail.params.run_datetime ? fmtRunDate(detail.params.run_datetime) : '-'}
@@ -399,79 +403,6 @@ export default function ExperimentResultDetail() {
               ) : <p className="text-xs text-gray-300">-</p>}
             </div>
 
-            {/* 검증 데이터 */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">검증 데이터</p>
-              {metricSources ? (
-                <div className="space-y-4 pt-2">
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">정답 데이터셋</span>
-                    <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
-                      {detail?.params.answer_dataset_name ?? '-'}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">비교 데이터 경로</span>
-                    <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
-                      {metricSources.observation_dataset_dir ?? '-'}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">지표 파일 경로</span>
-                    <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
-                      {metricFilePath ?? '-'}
-                    </span>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">매칭 파일</span>
-                    <span className="text-xs font-semibold text-emerald-700 block">{matchedCount}개</span>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs text-gray-500 block mb-0.5">누락 step</span>
-                    <span className="text-xs font-medium text-gray-900 block break-words">
-                      {metricSources.missing_steps?.length ? metricSources.missing_steps.join(', ') : '-'}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-4 gap-1.5">
-                  <svg className="w-7 h-7 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-xs text-gray-400 text-center">비교 데이터 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">테스트케이스 등록 시 경로 미지정</p>
-                </div>
-              )}
-            </div>
-
-            {/* 테스트케이스 일정 */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">테스트케이스 일정</p>
-              <div className="space-y-4 pt-2">
-                <div className="min-w-0">
-                  <span className="text-xs text-gray-500 block mb-0.5">생성자</span>
-                  <span className="text-xs font-medium text-gray-900 block break-words">{displayRequester}</span>
-                </div>
-                <div className="min-w-0">
-                  <span className="text-xs text-gray-500 block mb-0.5">등록 시각</span>
-                  <span className="text-xs font-medium text-gray-900 block break-words">{fmtDateTime(job?.created_at ?? null)}</span>
-                </div>
-                <div className="min-w-0">
-                  <span className="text-xs text-gray-500 block mb-0.5">시작 시각</span>
-                  <span className="text-xs font-medium text-gray-900 block break-words">{fmtDateTime(job?.started_at ?? null)}</span>
-                </div>
-                <div className="min-w-0">
-                  <span className="text-xs text-gray-500 block mb-0.5">완료 시각</span>
-                  <span className="text-xs font-medium text-gray-900 block break-words">{fmtDateTime(job?.finished_at ?? null)}</span>
-                </div>
-                <div className="min-w-0 pt-1.5 border-t border-gray-100">
-                  <span className="text-xs text-gray-500 block mb-0.5">소요 시간</span>
-                  <span className="text-xs font-bold text-blue-700 block break-words">{fmtDuration(job?.started_at ?? null, job?.finished_at ?? null)}</span>
-                </div>
-              </div>
-            </div>
-
           </div>
 
         </div>
@@ -479,7 +410,7 @@ export default function ExperimentResultDetail() {
         {/* (2행) 메모 */}
         <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
-          <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo || '-'}</p>
+          <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
         </div>
       </div>
         </>

@@ -25,7 +25,6 @@ import { SkeletonTableRows } from '@/lib/Skeleton';
 const POLL_MS   = 3000;
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
 const DEFAULT_OBSERVATION_DATASET_DIR = '/data/observations/default';
-const GOLD_MEDAL_KEY_PREFIX = 'kict_gold_execution_';
 const PAGE_SIZE = 10;
 type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
 
@@ -853,7 +852,6 @@ export default function ExperimentDetailPage() {
   const [showModal,  setShowModal]  = useState(false);
   const [models,              setModels]              = useState<ModelVersion[]>([]);
   const [selectedId,          setSelectedId]          = useState<number | null>(null);
-  const [goldJobId,           setGoldJobId]           = useState<number | null>(null);
   const prevJobStatusRef = useRef<Record<number, string>>({});
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'COMPLETED' | 'FAILED' | 'RUNNING' | 'QUEUED'>('ALL');
   const [sortBy,        setSortBy]      = useState<'latest' | 'mae' | 'rmse' | 'csi'>('latest');
@@ -867,23 +865,7 @@ export default function ExperimentDetailPage() {
     getExperiment(expId)
       .then(setExperiment)
       .catch(() => setExperiment(null));
-    try {
-      const saved = localStorage.getItem(`${GOLD_MEDAL_KEY_PREFIX}${expId}`);
-      setGoldJobId(saved ? Number(saved) : null);
-    } catch { /* noop */ }
   }, [expId]);
-
-  const toggleGoldJob = (jobId: number) => {
-    setGoldJobId(prev => {
-      const next = prev === jobId ? null : jobId;
-      try {
-        const key = `${GOLD_MEDAL_KEY_PREFIX}${expId}`;
-        if (next == null) localStorage.removeItem(key);
-        else localStorage.setItem(key, String(next));
-      } catch { /* noop */ }
-      return next;
-    });
-  };
 
   // 실 백엔드 작업 목록 로드 (experiment_id로 서버가 이미 필터링 — 상태 무관)
   const fetchJobs = useCallback(() => {
@@ -902,6 +884,15 @@ export default function ExperimentDetailPage() {
   for (const job of tcJobs) {
     if (job.status.toUpperCase() !== 'COMPLETED') continue;
     tcSummary[job.job_id] = parseMetrics(resultMap[job.job_id]?.metrics).summary;
+  }
+
+  // 대표 테스트케이스 = 완료된 것 중 CSI가 가장 높은 job (자동 산정, 수동 선택 없음)
+  let goldJobId: number | null = null;
+  let bestCsi = -Infinity;
+  for (const job of tcJobs) {
+    const csi = tcSummary[job.job_id]?.csi;
+    if (csi == null) continue;
+    if (csi > bestCsi) { bestCsi = csi; goldJobId = job.job_id; }
   }
 
   // 상태 필터 + 정렬 (MAE/RMSE는 낮을수록, CSI는 높을수록 좋은 테스트케이스)
@@ -926,11 +917,14 @@ export default function ExperimentDetailPage() {
   useEffect(() => { setPage(1); }, [statusFilter, sortBy]);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
-  // 완료된 테스트케이스의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
+  // 테스트케이스 결과(성능 지표 + run_datetime) 조회.
+  // COMPLETED가 아니어도 params.run_datetime은 항상 있어서, 실행명 표시(formatExecutionName)에
+  // 필요하므로 상태 무관하게 조회한다 — 안 그러면 FAILED/QUEUED 건은 run_datetime을 못 받아서
+  // 실험명 문자열을 다시 파싱하다가 시각이 00시 00분으로 깨져 보인다.
   useEffect(() => {
-    const completed = tcJobs.filter(j => j.status.toUpperCase() === 'COMPLETED' && !(j.job_id in resultMap));
-    if (completed.length === 0) return;
-    completed.forEach(j => {
+    const pending = tcJobs.filter(j => !(j.job_id in resultMap));
+    if (pending.length === 0) return;
+    pending.forEach(j => {
       getTrainingResult(j.job_id)
         .then(r => setResultMap(prev => ({ ...prev, [j.job_id]: r })))
         .catch(() => {});
@@ -1201,7 +1195,7 @@ export default function ExperimentDetailPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['', '테스트케이스 이름', '생성자', '상태', '등록일', '소요시간', '예상시간', '모델', 'MAE', 'RMSE', 'CSI', '삭제'].map((h, i) => (
+              {['', '테스트케이스 이름', '생성자', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI', '삭제'].map((h, i) => (
                 <th key={i} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -1209,7 +1203,7 @@ export default function ExperimentDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && pagedJobs.length === 0 && <SkeletonTableRows rows={4} cols={12} />}
+            {loading && pagedJobs.length === 0 && <SkeletonTableRows rows={4} cols={11} />}
             {pagedJobs.flatMap(job => {
               const s          = job.status.toUpperCase();
               const isSelected = job.job_id === selectedId;
@@ -1249,19 +1243,13 @@ export default function ExperimentDetailPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-0">
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation();
-                          toggleGoldJob(job.job_id);
-                        }}
-                        aria-pressed={goldJobId === job.job_id}
-                        aria-label="대표 테스트케이스 표시"
-                        title="대표 테스트케이스 표시"
-                        className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
+                      <span
+                        aria-label="대표 테스트케이스 (완료된 것 중 CSI 최고점, 자동 산정)"
+                        title="대표 테스트케이스 (CSI 최고점, 자동 산정)"
+                        className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
                           goldJobId === job.job_id
                             ? 'border-amber-300 bg-amber-50'
-                            : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50'
+                            : 'border-gray-200 bg-white'
                         }`}
                       >
                         {goldJobId === job.job_id ? (
@@ -1269,7 +1257,7 @@ export default function ExperimentDetailPage() {
                         ) : (
                           <span className="h-2.5 w-2.5 rounded-full border border-gray-300" aria-hidden="true" />
                         )}
-                      </button>
+                      </span>
                       <span className="font-semibold text-gray-800 text-sm leading-tight">{executionName}</span>
                     </div>
                   </td>
@@ -1277,7 +1265,6 @@ export default function ExperimentDetailPage() {
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
                   <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtEta(job)}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-semibold ${/v3/i.test(modelVer) ? 'text-emerald-600' : 'text-amber-600'}`}>
                       {modelVer}
@@ -1315,7 +1302,7 @@ export default function ExperimentDetailPage() {
 
               const detailRow = (
                 <tr key={`${job.job_id}-detail`}>
-                  <td colSpan={12} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
+                  <td colSpan={11} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mb-3">
                       {[
                         { label: '등록일',    value: fmtDt(job.created_at) },

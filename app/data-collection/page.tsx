@@ -38,15 +38,13 @@ function ExecutionFeedback({
   state,
   result,
   error,
+  expectedCount,
 }: {
   state: StepState;
   result: DataCollectionPipelineResult | null;
   error: string | null;
+  expectedCount: number;
 }) {
-  const collectLogs = result?.collect ? [...result.collect.stdout_tail, ...result.collect.stderr_tail] : [];
-  const convertLogs = result?.convert ? [...result.convert.stdout_tail, ...result.convert.stderr_tail] : [];
-  const hasLogs = collectLogs.length > 0 || convertLogs.length > 0;
-
   if (state === 'RUNNING') {
     return (
       <div className="mt-4 flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
@@ -68,13 +66,16 @@ function ExecutionFeedback({
 
   const isFailed = result.status === 'FAILED';
   const isEmpty = result.status !== 'FAILED' && result.file_count === 0;
-  const tone = isFailed ? 'red' : isEmpty ? 'amber' : 'blue';
+  const isPartial = !isFailed && !isEmpty && result.file_count < expectedCount;
+  const tone = isFailed ? 'red' : isEmpty || isPartial ? 'amber' : 'blue';
   const title = isFailed ? '학습데이터 만들기 실패' : isEmpty ? 'ASC 파일이 생성되지 않았습니다' : result.message;
   const message = isFailed
     ? result.convert.message || result.collect.message
     : isEmpty
       ? '수집은 끝났지만 변환 결과 폴더에 ASC 파일이 없습니다. 변환 스크립트 로그를 확인하세요.'
-      : `ASC 파일 ${result.file_count}개`;
+      : isPartial
+        ? `요청한 ${expectedCount}개 중 ${result.file_count}개만 수집됐어요. 나머지는 공공API에서 데이터를 받지 못했습니다 — 이 묶음은 4개가 안 돼서 테스트케이스 입력으로 못 씁니다.`
+        : `ASC 파일 ${result.file_count}개`;
 
   return (
     <div
@@ -93,28 +94,10 @@ function ExecutionFeedback({
       >
         {title}
       </p>
-      <p
-        className={`mt-1 text-xs ${
-          tone === 'red' ? 'text-red-600' :
-          tone === 'amber' ? 'text-amber-700' :
-          'text-blue-600'
-        }`}
-      >
-        {message}
-      </p>
-
-      {hasLogs && (
-        <div className="mt-3 overflow-hidden rounded border border-black/10 bg-white">
-          <div className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-500">실행 로그</div>
-          <pre className="max-h-44 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs leading-5 text-gray-700">
-            {[
-              collectLogs.length ? '[collect]' : '',
-              ...collectLogs,
-              convertLogs.length ? '[convert]' : '',
-              ...convertLogs,
-            ].filter(Boolean).join('\n')}
-          </pre>
-        </div>
+      {(isFailed || isEmpty || isPartial) && (
+        <p className={`mt-1 text-xs ${tone === 'red' ? 'text-red-600' : 'text-amber-700'}`}>
+          {message}
+        </p>
       )}
     </div>
   );
@@ -334,6 +317,7 @@ export default function DataCollectionPage() {
   const [targetInput, setTargetInput] = useState('2022-08-09T10:20');
   const [intervalMinutes, setIntervalMinutes] = useState(5);
   const [inputTimes, setInputTimes] = useState<string[]>(generateInputTimes('2022-08-09T10:20', 5));
+  const [collectAnswerData, setCollectAnswerData] = useState(true);
   const [pipelineResult, setPipelineResult] = useState<DataCollectionPipelineResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -383,6 +367,7 @@ export default function DataCollectionPage() {
         frame_count: inputTimes.length,
         dataset_name: datasetName.trim(),
         created_by: getCurrentUsername(),
+        collect_answer_data: collectAnswerData,
       });
       setPipelineResult(result);
       setActiveTab('STATUS');
@@ -559,6 +544,21 @@ export default function DataCollectionPage() {
                   기준 시간부터 {intervalMinutes}분 간격으로 계산한 4개 입력 파일을 받아 ASC로 변환합니다.
                 </p>
               </div>
+
+              <label className="mt-4 flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={collectAnswerData}
+                  onChange={event => setCollectAnswerData(event.target.checked)}
+                  className="mt-0.5 accent-blue-600"
+                />
+                <span>
+                  <span className="block text-xs font-semibold text-gray-700">정답데이터도 함께 수집</span>
+                  <span className="mt-0.5 block text-[11px] text-gray-400">
+                    입력 4개 중 가장 최신 시각 기준 10~180분 뒤 데이터를 같은 API로 이어서 수집해 정답데이터셋으로 자동 등록합니다.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div className="mt-5 grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -587,7 +587,7 @@ export default function DataCollectionPage() {
                 DATA_CONVERTER_COMMAND가 설정되면 버튼이 활성화됩니다.
               </p>
             )}
-            <ExecutionFeedback state={state} result={pipelineResult} error={error} />
+            <ExecutionFeedback state={state} result={pipelineResult} error={error} expectedCount={4} />
           </div>
 
           <div className="flex flex-col">

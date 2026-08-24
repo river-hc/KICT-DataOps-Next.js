@@ -209,6 +209,9 @@ export interface DataCollectionPipelineResult {
   files: string[];
   started_at: string;
   finished_at: string;
+  answer_dataset_id?: number | null;
+  answer_dataset_name?: string | null;
+  answer_file_count?: number;
 }
 
 export interface DataCollectionDatasetGroup {
@@ -424,6 +427,7 @@ export async function makeTrainingDataset(body: {
   frame_count: number;
   dataset_name?: string | null;
   created_by?: string | null;
+  collect_answer_data?: boolean;
 }): Promise<DataCollectionPipelineResult> {
   return request<DataCollectionPipelineResult>('/data-collection/make-training-dataset', {
     method: 'POST',
@@ -455,6 +459,33 @@ export async function deleteTrainingDatasetGroups(groups: string[]): Promise<Dat
   const params = new URLSearchParams();
   groups.forEach(group => params.append('groups', group));
   return request<DataCollectionDeleteResult>(`/data-collection/training-dataset?${params.toString()}`, { method: 'DELETE' });
+}
+
+// ─── Assistant (규칙기반 검색, LLM/벡터DB 없음) ──────────────────────────────────
+
+export interface AssistantResultItem {
+  job_id: number;
+  experiment_name: string;
+  run_datetime: string | null;
+  model_version: string | null;
+  status: string;
+  user_name: string | null;
+  mae: number | null;
+  rmse: number | null;
+  csi: number | null;
+}
+
+export interface AssistantQueryResult {
+  message: string;
+  count: number;
+  results: AssistantResultItem[];
+}
+
+export async function queryAssistant(message: string): Promise<AssistantQueryResult> {
+  return request<AssistantQueryResult>('/assistant/query', {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
 }
 
 // ─── Training ─────────────────────────────────────────────────────────────────

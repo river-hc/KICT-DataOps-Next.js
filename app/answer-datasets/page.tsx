@@ -133,6 +133,25 @@ function UploadModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   );
 }
 
+// ─── 페이지네이션 ─────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+  return items;
+}
+
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 
 export default function AnswerDatasetsPage() {
@@ -142,6 +161,7 @@ export default function AnswerDatasetsPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AnswerDataset | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -157,6 +177,12 @@ export default function AnswerDatasetsPage() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const totalFiles = datasets.reduce((sum, d) => sum + d.file_count, 0);
+  const totalPages = Math.max(1, Math.ceil(datasets.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedDatasets = datasets.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
+
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -271,15 +297,15 @@ export default function AnswerDatasetsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {datasets.map(dataset => (
-                    <tr key={dataset.id} className="border-b border-gray-50 transition hover:bg-gray-50">
+                  {pagedDatasets.map(dataset => (
+                    <tr key={dataset.id} className="h-[52px] border-b border-gray-50 transition hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-gray-950">{dataset.name}</div>
+                        <div className="truncate font-semibold text-gray-950">{dataset.name}</div>
                         {dataset.description && (
-                          <div className="mt-0.5 text-xs text-gray-400">{dataset.description}</div>
+                          <div className="mt-0.5 truncate text-xs text-gray-400" title={dataset.description}>{dataset.description}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500 break-all">{dataset.path}</td>
+                      <td className="px-4 py-3 max-w-[260px] truncate font-mono text-xs text-gray-500" title={dataset.path}>{dataset.path}</td>
                       <td className="px-4 py-3 text-gray-600">{dataset.file_count}개</td>
                       <td className="px-4 py-3 text-xs text-gray-400">{formatDateTime(dataset.created_at)}</td>
                       <td className="px-4 py-3 text-right">
@@ -293,8 +319,39 @@ export default function AnswerDatasetsPage() {
                       </td>
                     </tr>
                   ))}
+                  {datasets.length > PAGE_SIZE && pagedDatasets.length < PAGE_SIZE &&
+                    Array.from({ length: PAGE_SIZE - pagedDatasets.length }).map((_, i) => (
+                      <tr key={`filler-${i}`} className="h-[52px] border-b border-gray-50">
+                        <td colSpan={5} className="px-4 py-3">&nbsp;</td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
+
+              {datasets.length > PAGE_SIZE && (
+                <div className="flex h-12 items-center justify-center border-t border-gray-100 px-5 text-xs text-gray-500">
+                  <div className="flex items-center gap-2">
+                    {pagination.map(item => (
+                      typeof item === 'number' ? (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setPage(item)}
+                          className={`min-w-5 px-1 py-1 transition-colors ${
+                            item === safePage
+                              ? 'font-semibold text-blue-600 underline underline-offset-4'
+                              : 'text-gray-500 hover:text-blue-600'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ) : (
+                        <span key={item} className="px-1 text-gray-300">...</span>
+                      )
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

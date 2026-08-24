@@ -32,9 +32,9 @@ function StatusSummary({ counts, total }: { counts: StatusCounts; total: number 
   ] as { key: keyof StatusCounts; label: string; cls: string }[];
   const visible = items.filter(i => counts[i.key] > 0);
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex items-center gap-1.5 flex-nowrap">
       {visible.map(i => (
-        <span key={i.key} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${i.cls}`}>
+        <span key={i.key} className={`whitespace-nowrap text-[11px] font-semibold px-1.5 py-0.5 rounded ${i.cls}`}>
           {i.label} {counts[i.key]}
         </span>
       ))}
@@ -127,6 +127,25 @@ function NewExperimentEnvModal({
   );
 }
 
+// ─── 페이지네이션 ─────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+  return items;
+}
+
 // ─── 메인 페이지 ──────────────────────────────────────────────────────────────
 
 const POLL_MS = 3000;
@@ -137,6 +156,7 @@ export default function ExperimentsPage() {
   const [expJobs,     setExpJobs]     = useState<TrainingJob[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [page,        setPage]        = useState(1);
 
   // 실험 목록 (서버 기준 — 브라우저/계정과 무관하게 항상 동일)
   const fetchExperiments = useCallback(() => {
@@ -163,6 +183,12 @@ export default function ExperimentsPage() {
   }, [expJobs]);
 
   const allExps = experiments;
+  const totalPages = Math.max(1, Math.ceil(allExps.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedExps = allExps.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
+
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   async function handleCreateExp(name: string, desc: string) {
     const created = await createExperimentGroup(name, desc || null);
@@ -214,7 +240,7 @@ export default function ExperimentsPage() {
           </thead>
           <tbody>
             {loading && allExps.length === 0 && <SkeletonTableRows rows={5} cols={6} />}
-            {allExps.map(exp => {
+            {pagedExps.map(exp => {
               // 테스트케이스 = 이 실험에 서버가 직접 연결해둔 job (experiment_id 기준)
               const tcJobs   = expJobs.filter(j => j.experiment_id === exp.id);
               const tcCount  = tcJobs.length;
@@ -228,7 +254,7 @@ export default function ExperimentsPage() {
                 <tr
                   key={exp.id}
                   onClick={() => router.push(`/experiments/${exp.id}`)}
-                  className="cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                  className="h-[52px] cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors"
                 >
                   <td className="px-5 py-3">
                     <span className="font-semibold text-blue-600 text-sm">{exp.name}</span>
@@ -251,11 +277,42 @@ export default function ExperimentsPage() {
                 </tr>
               );
             })}
+            {allExps.length > PAGE_SIZE && pagedExps.length < PAGE_SIZE &&
+              Array.from({ length: PAGE_SIZE - pagedExps.length }).map((_, i) => (
+                <tr key={`filler-${i}`} className="h-[52px] border-b border-gray-100">
+                  <td colSpan={6} className="px-5 py-3">&nbsp;</td>
+                </tr>
+              ))}
           </tbody>
         </table>
 
         {allExps.length === 0 && !loading && (
           <div className="py-16 text-center text-gray-400 text-sm">등록된 실험이 없습니다.</div>
+        )}
+
+        {allExps.length > PAGE_SIZE && (
+          <div className="h-12 flex items-center justify-center border-t border-gray-100 px-5 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+              {pagination.map(item => (
+                typeof item === 'number' ? (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setPage(item)}
+                    className={`min-w-5 px-1 py-1 transition-colors ${
+                      item === safePage
+                        ? 'font-semibold text-blue-600 underline underline-offset-4'
+                        : 'text-gray-500 hover:text-blue-600'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ) : (
+                  <span key={item} className="px-1 text-gray-300">...</span>
+                )
+              ))}
+            </div>
+          </div>
         )}
 
         <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-400">
