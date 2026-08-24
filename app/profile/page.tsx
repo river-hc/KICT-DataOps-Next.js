@@ -6,9 +6,8 @@ import {
   getDisplayUsername,
   getCurrentUsername,
   changeNickname,
-  changePassword,
-  verifyCurrentPassword,
 } from '@/lib/account';
+import { changeAccountPassword } from '@/lib/api';
 import { updateTcRequesterNickname } from '@/lib/experimentStore';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
@@ -60,13 +59,9 @@ export default function ProfilePage() {
     setNameNotice({ type: 'success', text: '닉네임이 변경되었습니다.' });
   };
 
-  const handlePwSubmit = (e: FormEvent) => {
+  const handlePwSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setPwNotice(null);
-    if (!verifyCurrentPassword(curPw)) {
-      setPwNotice({ type: 'error', text: '현재 비밀번호가 올바르지 않습니다.' });
-      return;
-    }
     if (newPw.length < MIN_PW_LEN) {
       setPwNotice({ type: 'error', text: `새 비밀번호는 최소 ${MIN_PW_LEN}자 이상이어야 합니다.` });
       return;
@@ -80,12 +75,17 @@ export default function ProfilePage() {
       return;
     }
     setPwSaving(true);
-    changePassword(getCurrentUsername(), newPw);
-    setPwSaving(false);
-    setCurPw('');
-    setNewPw('');
-    setConfirmPw('');
-    setPwNotice({ type: 'success', text: '비밀번호가 변경되었습니다. 다음 로그인부터 적용됩니다.' });
+    try {
+      await changeAccountPassword(getCurrentUsername(), curPw, newPw);
+      setCurPw('');
+      setNewPw('');
+      setConfirmPw('');
+      setPwNotice({ type: 'success', text: '비밀번호가 변경되었습니다. 다음 로그인부터 적용됩니다.' });
+    } catch (err) {
+      setPwNotice({ type: 'error', text: err instanceof Error ? err.message : '비밀번호 변경에 실패했습니다.' });
+    } finally {
+      setPwSaving(false);
+    }
   };
 
   return (
@@ -109,7 +109,7 @@ export default function ProfilePage() {
         {/* 닉네임 변경 */}
         <form onSubmit={handleNameSubmit} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-1">닉네임 변경</h2>
-          <p className="text-xs text-gray-400 mb-4">변경 즉시 화면과 실험 요청자명에 반영됩니다.</p>
+          <p className="text-xs text-gray-400 mb-4">변경 즉시 화면과 실험 생성자명에 반영됩니다.</p>
 
           <label htmlFor="newName" className="block text-xs font-semibold text-gray-500 mb-1.5">새 닉네임</label>
           <input

@@ -104,6 +104,7 @@ export function demoExperiments(): Experiment[] {
       id: DEMO_EXPERIMENT_ID,
       name: '2026 summer',
       description: 'KICT 강우 예측 모델 성능 검증',
+      created_by: 'admin',
       created_at: new Date().toISOString(),
     },
   ];

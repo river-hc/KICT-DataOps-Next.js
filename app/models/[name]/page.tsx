@@ -200,7 +200,7 @@ export default function ModelDetail() {
       onClick={() => router.push('/trainings')}
       className="rounded-lg bg-gray-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
     >
-      새 실행 만들기
+      새 테스트케이스 만들기
     </button>
   );
 

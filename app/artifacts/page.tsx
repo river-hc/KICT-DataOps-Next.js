@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getArtifactsByRun, getUsername, displayUsername, formatExecutionName, type TrainingJob, type Artifact } from '@/lib/api';
-import { loadClientExperiments, loadExpTcMap, loadTcModelMeta } from '@/lib/experimentStore';
+import { getExperimentJobs, getExperiments, getArtifactsByRun, displayUsername, formatExecutionName, type TrainingJob, type Artifact, type Experiment } from '@/lib/api';
+import { loadTcModelMeta } from '@/lib/experimentStore';
 import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 const PAGE_SIZE = 5;
@@ -37,6 +37,20 @@ function handleDownload(a: Artifact, jobId: number | null) {
   document.body.removeChild(link);
 }
 
+function handleDownloadAll(artifacts: Artifact[], runId: number, jobId: number | null) {
+  // mock 아티팩트(/mock/ 정적 파일)는 서버에 실제 파일이 없어 zip으로 묶을 수 없으므로
+  // 개별 다운로드로 폴백한다.
+  if (artifacts.some(a => a.file_path.startsWith('/mock/'))) {
+    artifacts.forEach((a, i) => setTimeout(() => handleDownload(a, jobId), i * 300));
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = `/api/v1/runs/${runId}/artifacts/download`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 function pageItems(totalPages: number, currentPage: number): PageItem[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, i) => i + 1);
@@ -63,11 +77,14 @@ export default function Artifacts() {
   const [loading, setLoading]             = useState(true);
   const [artLoading, setArtLoading]       = useState(false);
 
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+
   useEffect(() => {
     getExperimentJobs()
       .then(data => setTrainings(data))
       .catch(() => setTrainings([]))
       .finally(() => setLoading(false));
+    getExperiments().then(setExperiments).catch(() => setExperiments([]));
   }, []);
 
   const handleRunSelect = async (job: TrainingJob) => {
@@ -85,19 +102,16 @@ export default function Artifacts() {
     }
   };
 
+  // 실험명 = job의 experiment_id를 서버 실험 목록에서 찾아 매칭 (서버 기준 — 브라우저 무관)
   const experimentNameByJobId = useMemo(() => {
-    const map = loadExpTcMap();
+    const nameById = new Map(experiments.map(e => [e.id, e.name]));
     const names: Record<number, string> = {};
-
-    for (const exp of loadClientExperiments()) {
-      const ids = map[exp.id] ?? exp.tc_job_ids;
-      ids.forEach(id => {
-        names[id] = exp.name;
-      });
+    for (const job of trainings) {
+      const name = job.experiment_id != null ? nameById.get(job.experiment_id) : undefined;
+      if (name) names[job.job_id] = name;
     }
-
     return names;
-  }, []);
+  }, [experiments, trainings]);
 
   const completed = trainings
     .filter(t => t.status.toUpperCase() === 'COMPLETED' && experimentNameByJobId[t.job_id])
@@ -106,7 +120,6 @@ export default function Artifacts() {
   const safePage = Math.min(page, totalPages);
   const pagedCompleted = completed.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const pagination = pageItems(totalPages, safePage);
-  const currentUser = getUsername() ?? 'admin';
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -116,10 +129,7 @@ export default function Artifacts() {
     return experimentNameByJobId[jobId] ?? '-';
   };
 
-  const displayRequester = (job: TrainingJob): string => {
-    const stored = loadTcModelMeta(job.job_id)?.requester;
-    return displayUsername(stored ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : currentUser));
-  };
+  const displayRequester = (job: TrainingJob): string => displayUsername(job.user_name);
 
   const displayMode = (job: TrainingJob): string => {
     const stored = loadTcModelMeta(job.job_id)?.architecture;
@@ -153,22 +163,22 @@ export default function Artifacts() {
     <Layout>
       {/* 페이지 타이틀은 공통 헤더가 표시 */}
       <div className="grid grid-cols-2 gap-5 h-[460px] min-h-0">
-        {/* 완료된 실행 목록 */}
+        {/* 완료된 테스트케이스 목록 */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-0">
           <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-700">완료된 실행</span>
+            <span className="text-sm font-semibold text-gray-700">완료된 테스트케이스</span>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{completed.length}건</span>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
             {completed.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 실행이 없습니다.</p>
+              <p className="px-5 py-8 text-sm text-center text-gray-400">완료된 테스트케이스가 없습니다.</p>
             ) : (
               <table className="w-full table-fixed text-sm">
                 <thead className="bg-gray-50 text-xs font-semibold text-gray-500">
                   <tr>
                     <th className="w-[24%] px-4 py-2.5 text-left">실험명</th>
-                    <th className="w-[38%] px-4 py-2.5 text-left">실행명</th>
-                    <th className="w-[20%] px-4 py-2.5 text-left">요청자</th>
+                    <th className="w-[38%] px-4 py-2.5 text-left">테스트케이스명</th>
+                    <th className="w-[20%] px-4 py-2.5 text-left">생성자</th>
                     <th className="w-[18%] px-4 py-2.5 text-left">방식</th>
                   </tr>
                 </thead>
@@ -227,7 +237,7 @@ export default function Artifacts() {
                   {artifacts.length}개
                 </span>
                 <button
-                  onClick={() => artifacts.forEach((a, i) => setTimeout(() => handleDownload(a, selectedJobId), i * 300))}
+                  onClick={() => handleDownloadAll(artifacts, selectedRunId, selectedJobId)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   title="목록의 모든 파일 다운로드"
                 >
@@ -241,7 +251,7 @@ export default function Artifacts() {
           </div>
           <div className="divide-y divide-gray-100 flex-1 min-h-0 overflow-y-auto">
             {!selectedRunId ? (
-              <p className="px-5 py-10 text-sm text-center text-gray-400">좌측에서 실행을 선택하세요.</p>
+              <p className="px-5 py-10 text-sm text-center text-gray-400">좌측에서 테스트케이스를 선택하세요.</p>
             ) : artLoading ? (
               <div className="flex items-center justify-center py-10">
                 <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />

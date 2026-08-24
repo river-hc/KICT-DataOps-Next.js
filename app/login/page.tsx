@@ -3,7 +3,8 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { hasOverride, verifyCredentials, persistSession } from '@/lib/account';
+import { persistSession } from '@/lib/account';
+import { loginAccount, resetAccountPassword } from '@/lib/api';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -11,6 +12,8 @@ export default function LoginPage() {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [showPw, setShowPw]     = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetNotice, setResetNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const router = useRouter();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -18,35 +21,32 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      // 프로필에서 비밀번호를 변경한 계정은 클라이언트에서 override 검증 (백엔드 계정 API 부재)
-      if (hasOverride(username)) {
-        if (verifyCredentials(username, password)) {
-          const token = btoa(`${username}:${Date.now()}`);
-          persistSession(token, username);
-          router.push('/dashboard');
-        } else {
-          setError('아이디 또는 비밀번호가 올바르지 않습니다.');
-        }
-        return;
-      }
-
-      const res = await fetch('/api/auth/login', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ username, password }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        persistSession(data.access_token, data.username ?? username);
-        router.push('/dashboard');
-      } else {
-        const err = await res.json().catch(() => ({ detail: '로그인에 실패했습니다.' }));
-        setError(err.detail || '로그인에 실패했습니다.');
-      }
-    } catch {
-      setError('서버 연결에 실패했습니다.');
+      const data = await loginAccount(username, password);
+      const token = btoa(`${data.username}:${Date.now()}`);
+      persistSession(token, data.username);
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '로그인에 실패했습니다.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!username) {
+      setResetNotice({ type: 'error', text: '초기화할 아이디를 먼저 입력해주세요.' });
+      return;
+    }
+    if (!window.confirm(`${username.toUpperCase()} 계정 비밀번호를 초기값으로 되돌릴까요?`)) return;
+    setResetting(true);
+    setResetNotice(null);
+    try {
+      await resetAccountPassword(username);
+      setResetNotice({ type: 'success', text: '비밀번호가 초기값으로 재설정되었습니다.' });
+    } catch (err) {
+      setResetNotice({ type: 'error', text: err instanceof Error ? err.message : '초기화에 실패했습니다.' });
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -191,6 +191,29 @@ export default function LoginPage() {
               </span>
             ) : '로그인'}
           </button>
+
+          {/* 비밀번호 초기화 */}
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={resetting}
+              className="text-xs underline opacity-60 hover:opacity-100 transition-opacity disabled:opacity-30"
+              style={{ color: 'var(--login-muted)' }}
+            >
+              {resetting ? '초기화 중...' : '비밀번호를 잊으셨나요? 초기값으로 재설정'}
+            </button>
+          </div>
+
+          {resetNotice && (
+            <div className={`flex items-start gap-2 px-3.5 py-2.5 rounded-lg text-xs border ${
+              resetNotice.type === 'error'
+                ? 'bg-red-50 border-red-200 text-red-600'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            }`}>
+              {resetNotice.text}
+            </div>
+          )}
         </form>
       </div>
     </div>

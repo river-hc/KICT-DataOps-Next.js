@@ -3,11 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, type TrainingJob } from '@/lib/api';
-import {
-  loadClientExperiments, saveClientExperiment, loadExpTcMap,
-  type ClientExperiment,
-} from '@/lib/experimentStore';
+import { getExperimentJobs, getExperiments, createExperimentGroup, type TrainingJob, type Experiment } from '@/lib/api';
 import { SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 상태 요약 계산 ───────────────────────────────────────────────────────────
@@ -27,7 +23,7 @@ function calcStatusCounts(tcJobs: TrainingJob[]): StatusCounts {
 }
 
 function StatusSummary({ counts, total }: { counts: StatusCounts; total: number }) {
-  if (total === 0) return <span className="text-xs text-gray-300">실행 없음</span>;
+  if (total === 0) return <span className="text-xs text-gray-300">테스트케이스 없음</span>;
   const items = [
     { key: 'RUNNING',   label: '실행 중', cls: 'text-emerald-700 bg-emerald-50' },
     { key: 'QUEUED',    label: '대기',    cls: 'text-amber-700 bg-amber-50' },
@@ -52,10 +48,26 @@ function NewExperimentEnvModal({
   onClose, onSave,
 }: {
   onClose: () => void;
-  onSave: (name: string, desc: string) => void;
+  onSave: (name: string, desc: string) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(name.trim(), desc.trim());
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '실험 생성에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -64,7 +76,7 @@ function NewExperimentEnvModal({
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-900">새 실험 환경</h2>
-            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 실행을 추가할 수 있습니다.</p>
+            <p className="text-xs text-gray-400 mt-0.5">실험 환경을 생성한 후 테스트케이스를 추가할 수 있습니다.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
             <svg viewBox="0 0 16 16" className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -78,7 +90,7 @@ function NewExperimentEnvModal({
             <input
               value={name}
               onChange={e => setName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && name.trim() && (onSave(name.trim(), desc.trim()), onClose())}
+              onKeyDown={e => e.key === 'Enter' && submit()}
               placeholder="예: 2026년 7월 QPF 검증"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               autoFocus
@@ -94,17 +106,20 @@ function NewExperimentEnvModal({
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+          )}
         </div>
         <div className="border-t border-gray-100 px-6 py-4 flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             취소
           </button>
           <button
-            onClick={() => { if (name.trim()) { onSave(name.trim(), desc.trim()); onClose(); } }}
-            disabled={!name.trim()}
+            onClick={submit}
+            disabled={!name.trim() || saving}
             className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            생성
+            {saving ? '생성 중...' : '생성'}
           </button>
         </div>
       </div>
@@ -121,15 +136,16 @@ export default function ExperimentsPage() {
   const [showModal,   setShowModal]   = useState(false);
   const [expJobs,     setExpJobs]     = useState<TrainingJob[]>([]);
   const [loading,     setLoading]     = useState(true);
-  const [clientExps,  setClientExps]  = useState<ClientExperiment[]>([]);
-  const [tcMap,       setTcMap]       = useState<Record<number, number[]>>({});
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
 
-  useEffect(() => {
-    setClientExps(loadClientExperiments());
-    setTcMap(loadExpTcMap());
+  // 실험 목록 (서버 기준 — 브라우저/계정과 무관하게 항상 동일)
+  const fetchExperiments = useCallback(() => {
+    getExperiments().then(setExperiments).catch(() => setExperiments([]));
   }, []);
 
-  // 실 백엔드 작업 목록 (사용자 추가 실행 매칭용)
+  useEffect(() => { fetchExperiments(); }, [fetchExperiments]);
+
+  // 실 백엔드 작업 목록 (experiment_id로 실험과 연결됨 — 서버 기준)
   const fetchJobs = useCallback(() => {
     getExperimentJobs()
       .then(data => setExpJobs(data))
@@ -146,18 +162,12 @@ export default function ExperimentsPage() {
     return () => clearInterval(id);
   }, [expJobs]);
 
-  const allExps = clientExps;
+  const allExps = experiments;
 
-  function handleCreateExp(name: string, desc: string) {
-    const newExp: ClientExperiment = {
-      id: Date.now(),
-      name,
-      description: desc,
-      created_at: new Date().toISOString(),
-      tc_job_ids: [],
-    };
-    saveClientExperiment(newExp);
-    setClientExps(prev => [newExp, ...prev]);
+  async function handleCreateExp(name: string, desc: string) {
+    const created = await createExperimentGroup(name, desc || null);
+    setExperiments(prev => [created, ...prev]);
+    router.push(`/experiments/${created.id}`);
   }
 
   function fmtDt(iso: string | null) {
@@ -195,7 +205,7 @@ export default function ExperimentsPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['실험 이름', '설명', '실행 수', '상태', '최근 실행'].map(h => (
+              {['실험 이름', '생성자', '설명', '테스트케이스 수', '상태', '최근 테스트케이스'].map(h => (
                 <th key={h} className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -203,11 +213,10 @@ export default function ExperimentsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && allExps.length === 0 && <SkeletonTableRows rows={5} cols={5} />}
+            {loading && allExps.length === 0 && <SkeletonTableRows rows={5} cols={6} />}
             {allExps.map(exp => {
-              // 실행 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
-              const userIds  = tcMap[exp.id] ?? [];
-              const tcJobs   = expJobs.filter(j => userIds.includes(j.job_id));
+              // 테스트케이스 = 이 실험에 서버가 직접 연결해둔 job (experiment_id 기준)
+              const tcJobs   = expJobs.filter(j => j.experiment_id === exp.id);
               const tcCount  = tcJobs.length;
               const counts   = calcStatusCounts(tcJobs);
               const latestTs = tcJobs.reduce<string | null>((acc, j) => {
@@ -223,6 +232,9 @@ export default function ExperimentsPage() {
                 >
                   <td className="px-5 py-3">
                     <span className="font-semibold text-blue-600 text-sm">{exp.name}</span>
+                  </td>
+                  <td className="px-5 py-3 text-gray-500 text-xs font-mono whitespace-nowrap">
+                    {exp.created_by || '-'}
                   </td>
                   <td className="px-5 py-3 text-gray-500 text-sm max-w-[280px]">
                     <span className="line-clamp-1">{exp.description || '-'}</span>

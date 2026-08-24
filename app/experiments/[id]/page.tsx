@@ -5,19 +5,19 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getExperimentJobs, getModels, getTrainingLogs, getTrainingResult, deleteTraining,
-  createExperimentJob,
-  fileToBase64, calculateTimestamp, getUsername, displayUsername, formatExecutionName,
-  type TrainingJob, type AscFileInput, type ModelVersion,
-  type TrainingResult,
+  getExperiment, getTrainingJobsByExperiment, getModels, getTrainingResult, deleteTraining,
+  createExperimentJob, getDataCollectionInfo, getAnswerDatasets, createAnswerDataset,
+  displayUsername, formatExecutionName,
+  type TrainingJob, type AscFileInput, type ModelVersion, type DataCollectionDatasetGroup,
+  type TrainingResult, type Experiment, type AnswerDataset,
 } from '@/lib/api';
 import {
-  loadClientExperiments, addTcToExpMap, getUserTcJobIds, removeTcFromExpMap, saveTcMemo,
+  saveTcMemo,
   loadTcModelMeta, saveTcModelMeta,
-  type ClientExperiment,
 } from '@/lib/experimentStore';
+import { getCurrentUsername } from '@/lib/account';
 import { mergeRegisteredModels } from '@/lib/modelStore';
-import { metricsOrSample } from '@/lib/metrics';
+import { parseMetrics } from '@/lib/metrics';
 import { SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 상수 ────────────────────────────────────────────────────────────────────
@@ -26,6 +26,22 @@ const POLL_MS   = 3000;
 const ALL_STEPS = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180];
 const DEFAULT_OBSERVATION_DATASET_DIR = '/data/observations/default';
 const GOLD_MEDAL_KEY_PREFIX = 'kict_gold_execution_';
+const PAGE_SIZE = 10;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+  return items;
+}
 
 const FALLBACK_MODELS: ModelVersion[] = [
   { id: 1, experiment_id: 0, run_id: null, model_name: 'KICT-RAIN-AI', version: 'Ver.3',
@@ -39,6 +55,8 @@ const FALLBACK_MODELS: ModelVersion[] = [
 // ─── 유틸 ─────────────────────────────────────────────────────────────────────
 
 type SlotKey = 't0' | 't1' | 't2' | 't3';
+type InputSourceMode = 'LOAD' | 'UPLOAD';
+type AnswerSourceMode = 'SELECT' | 'UPLOAD';
 
 interface FileState { file: File | null; name: string | null; }
 interface FormFiles { t0: FileState; t1: FileState; t2: FileState; t3: FileState; }
@@ -170,6 +188,40 @@ function fmtDur(start: string | null, end: string | null): string {
   return `${Math.floor(s/3600)}시간 ${Math.floor((s%3600)/60)}분`;
 }
 
+function fmtSeconds(value?: number | null): string {
+  if (value == null) return '-';
+  const seconds = Math.max(0, Math.round(value));
+  if (seconds < 60) return `${seconds}초`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+  return `${Math.floor(seconds / 3600)}시간 ${Math.floor((seconds % 3600) / 60)}분`;
+}
+
+function fmtEta(job: TrainingJob): string {
+  const status = job.status.toUpperCase();
+  if (status === 'RUNNING') {
+    return job.remaining_seconds != null ? `남은 약 ${fmtSeconds(job.remaining_seconds)}` : '계산 중';
+  }
+  if (status === 'QUEUED') {
+    const prefix = job.queue_position ? `${job.queue_position}번째 대기` : '대기 중';
+    return job.remaining_seconds != null ? `${prefix} · 약 ${fmtSeconds(job.remaining_seconds)}` : prefix;
+  }
+  return fmtDur(job.started_at, job.finished_at);
+}
+
+function calcJobProgressPct(job: TrainingJob): number {
+  if (job.current_epoch != null && job.total_epochs != null && job.total_epochs > 0) {
+    return Math.min(100, Math.max(0, Math.round((job.current_epoch / job.total_epochs) * 100)));
+  }
+  if (job.progress != null && job.progress > 0) {
+    return Math.min(100, Math.max(0, Math.round(job.progress)));
+  }
+  if (job.status.toUpperCase() === 'RUNNING' && job.elapsed_seconds != null && job.estimated_total_seconds != null && job.estimated_total_seconds > 0) {
+    return Math.min(95, Math.max(1, Math.round((job.elapsed_seconds / job.estimated_total_seconds) * 100)));
+  }
+  if (job.status.toUpperCase() === 'COMPLETED') return 100;
+  return 0;
+}
+
 // ─── 상태 배지 ────────────────────────────────────────────────────────────────
 
 const STATUS_CLS: Record<string, string> = {
@@ -192,32 +244,22 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── 진행률 바 ────────────────────────────────────────────────────────────────
 
-function ProgressBar({ progress, currentEpoch, totalEpochs }: {
-  progress: number | null;
-  currentEpoch?: number | null;
-  totalEpochs?: number | null;
-}) {
-  let pct: number | null = null;
-  if (currentEpoch != null && totalEpochs != null && totalEpochs > 0)
-    pct = Math.min(100, Math.round((currentEpoch / totalEpochs) * 100));
-  else if (progress != null && progress > 0)
-    pct = progress;
-  const isIndet = pct === null || pct === 0;
+function ProgressBar({ job }: { job: TrainingJob }) {
+  const pct = calcJobProgressPct(job);
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden relative">
-        {isIndet
-          ? <div className="progress-indeterminate" />
-          : <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />}
+    <div className="flex items-center gap-3">
+      <span className="w-10 flex-shrink-0 text-right font-mono text-xs font-semibold tabular-nums text-gray-700">{pct}%</span>
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-gray-200">
+        <div
+          className="h-full rounded-full bg-blue-600 transition-[width] duration-700"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      <span className="text-xs tabular-nums w-7 text-right flex-shrink-0 text-gray-500">
-        {isIndet ? <span className="text-gray-400 tracking-widest">···</span> : `${pct}%`}
-      </span>
     </div>
   );
 }
 
-// ─── 실행 비교 모달 ──────────────────────────────────────────────────────────
+// ─── 테스트케이스 비교 모달 ──────────────────────────────────────────────────────────
 
 interface CompareRow { label: string; values: (job: TrainingJob, result?: TrainingResult) => string }
 
@@ -227,15 +269,15 @@ function CompareModal({ jobs, resultMap, onClose }: {
   onClose: () => void;
 }) {
   const rows: CompareRow[] = [
-    { label: '실행 이름',   values: job => formatExecutionName(job.experiment_name, resultMap[job.job_id]?.params.run_datetime) },
+    { label: '테스트케이스 이름',   values: job => formatExecutionName(job.experiment_name, resultMap[job.job_id]?.params.run_datetime) },
     { label: '상태',        values: job => job.status },
     { label: '모델 버전',   values: job => resultMap[job.job_id]?.params.model_version ?? '-' },
     { label: '등록일',      values: job => fmtDt(job.created_at) },
     { label: '소요시간',    values: job => fmtDur(job.started_at, job.finished_at) },
+    { label: '예상시간',    values: job => fmtEta(job) },
     { label: 'MAE',         values: (_job, r) => r?.metrics.mae != null ? Number(r.metrics.mae).toFixed(3) : '-' },
     { label: 'RMSE',        values: (_job, r) => r?.metrics.rmse != null ? Number(r.metrics.rmse).toFixed(3) : '-' },
     { label: 'CSI',         values: (_job, r) => r?.metrics.csi != null ? Number(r.metrics.csi).toFixed(3) : '-' },
-    { label: 'Git commit',  values: job => resultMap[job.job_id]?.params.git_commit ?? '-' },
   ];
 
   return (
@@ -243,7 +285,7 @@ function CompareModal({ jobs, resultMap, onClose }: {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-4xl mx-4 max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white">
-          <h2 className="text-lg font-bold text-gray-900">실행 비교 ({jobs.length}개)</h2>
+          <h2 className="text-lg font-bold text-gray-900">테스트케이스 비교 ({jobs.length}개)</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
             <svg viewBox="0 0 16 16" className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
               <path d="M2 2l12 12M14 2L2 14" />
@@ -327,12 +369,6 @@ function AscFolderSlot({ state, onChange }: {
   const mappedEntries = FILE_SLOTS.map(slot => ({ ...slot, file: state.mappedFiles[slot.key] }));
   const mappedCount = mappedEntries.filter(entry => entry.file.file).length;
 
-  const bindDirectoryInput = (node: HTMLInputElement | null) => {
-    ref.current = node;
-    node?.setAttribute('webkitdirectory', '');
-    node?.setAttribute('directory', '');
-  };
-
   const handleDirectorySelect = (fileList: FileList | null) => {
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
@@ -361,8 +397,9 @@ function AscFolderSlot({ state, onChange }: {
       }`}
     >
       <input
-        ref={bindDirectoryInput}
+        ref={ref}
         type="file"
+        accept=".asc"
         multiple
         className="hidden"
         onChange={e => {
@@ -379,9 +416,9 @@ function AscFolderSlot({ state, onChange }: {
           </svg>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold text-gray-700">입력 ASC 폴더</p>
+          <p className="text-xs font-bold text-gray-700">입력 ASC 파일</p>
           <p className={`text-xs mt-1 truncate ${state.files.length > 0 ? 'font-mono text-blue-700 font-semibold' : 'text-gray-400'}`}>
-            {state.files.length > 0 ? `${state.folderName} · ${state.files.length}개 파일` : '클릭하여 폴더 선택'}
+            {state.files.length > 0 ? `${state.folderName} · ${state.files.length}개 파일` : '클릭하여 파일 선택 (4개, Ctrl/Cmd+클릭으로 다중선택)'}
           </p>
         </div>
         {state.files.length > 0 && (
@@ -399,6 +436,17 @@ function AscFolderSlot({ state, onChange }: {
       </div>
 
       {state.files.length > 0 && (
+        <div className="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2" onClick={e => e.stopPropagation()}>
+          <p className="text-[11px] font-semibold text-gray-500 mb-1.5">폴더에서 찾은 파일 {state.files.length}개</p>
+          <div className="max-h-28 overflow-y-auto space-y-0.5">
+            {state.files.map((f, i) => (
+              <p key={`${f.name}-${i}`} className="text-[11px] font-mono text-gray-600 truncate">{f.name}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {state.files.length > 0 && (
         <div className="grid grid-cols-2 gap-2 mt-3">
           {mappedEntries.map(entry => (
             <div key={entry.key} className={`rounded-lg px-3 py-2 border ${
@@ -414,7 +462,7 @@ function AscFolderSlot({ state, onChange }: {
       )}
 
       {state.files.length > 0 && mappedCount < 4 && (
-        <p className="text-[11px] text-red-500 mt-2">실행에는 최소 4개의 ASC 파일이 필요합니다.</p>
+        <p className="text-[11px] text-red-500 mt-2">테스트케이스에는 최소 4개의 ASC 파일이 필요합니다.</p>
       )}
 
       {state.validationError && (
@@ -426,23 +474,39 @@ function AscFolderSlot({ state, onChange }: {
   );
 }
 
-// ─── 실행 추가 모달 (NewExperimentModal) ───────────────────────────────
+// ─── 테스트케이스 추가 모달 (NewExperimentModal) ───────────────────────────────
 
 function AddTcModal({
   onClose, onSubmit, models,
 }: {
   onClose: () => void;
   onSubmit: (
-    files: FormFiles,
+    files: FormFiles | null,
     modelVersion: string,
     memo: string,
     observationDatasetDir: string | null,
     outputDir: string | null,
+    inputDatasetDir: string | null,
+    inputDatasetFiles: string[],
+    answerDatasetId: number | null,
   ) => Promise<void>;
   models: ModelVersion[];
 }) {
   const [selectedModelId,     setSelectedModelId]     = useState<number | null>(models[0]?.id ?? null);
+  const [inputMode,           setInputMode]           = useState<InputSourceMode>('LOAD');
+  const [datasetGroups,       setDatasetGroups]       = useState<DataCollectionDatasetGroup[]>([]);
+  const [selectedGroupId,     setSelectedGroupId]     = useState<string>('');
+  const [loadingGroups,       setLoadingGroups]       = useState(false);
   const [ascFolder,           setAscFolder]           = useState<AscFolderState>(EMPTY_ASC_FOLDER);
+  const [answerDatasets,      setAnswerDatasets]      = useState<AnswerDataset[]>([]);
+  const [answerDatasetId,     setAnswerDatasetId]     = useState<number | null>(null);
+  const [loadingAnswerSets,   setLoadingAnswerSets]   = useState(false);
+  const [answerMode,          setAnswerMode]          = useState<AnswerSourceMode>('SELECT');
+  const [answerUploadName,    setAnswerUploadName]    = useState('');
+  const [answerUploadFiles,   setAnswerUploadFiles]   = useState<File[]>([]);
+  const [answerUploading,     setAnswerUploading]     = useState(false);
+  const [answerUploadError,   setAnswerUploadError]   = useState<string | null>(null);
+  const answerFileInputRef = useRef<HTMLInputElement | null>(null);
   const [memo,                setMemo]                = useState('');
   const [submitting,          setSubmitting]          = useState(false);
   const [error,               setError]               = useState<string | null>(null);
@@ -453,23 +517,81 @@ function AddTcModal({
     if (selectedModelId == null && models[0]) setSelectedModelId(models[0].id);
   }, [selectedModelId, models]);
 
+  useEffect(() => {
+    setLoadingGroups(true);
+    getDataCollectionInfo()
+      .then(info => {
+        const groups = (info.training_dataset_groups ?? []).filter(group => group.file_count === 4);
+        setDatasetGroups(groups);
+        setSelectedGroupId(prev => prev || groups[0]?.id || '');
+      })
+      .catch(() => setDatasetGroups([]))
+      .finally(() => setLoadingGroups(false));
+  }, []);
+
+  const refreshAnswerDatasets = useCallback((selectId?: number) => {
+    setLoadingAnswerSets(true);
+    return getAnswerDatasets()
+      .then(sets => {
+        setAnswerDatasets(sets);
+        setAnswerDatasetId(prev => selectId ?? prev ?? sets[0]?.id ?? null);
+        return sets;
+      })
+      .catch(() => { setAnswerDatasets([]); return []; })
+      .finally(() => setLoadingAnswerSets(false));
+  }, []);
+
+  useEffect(() => { refreshAnswerDatasets(); }, [refreshAnswerDatasets]);
+
+  const selectedGroup = datasetGroups.find(group => group.id === selectedGroupId) ?? null;
+  const selectedAnswerDataset = answerDatasets.find(dataset => dataset.id === answerDatasetId) ?? null;
+
+  const handleAnswerFiles = (fileList: FileList | null) => {
+    if (!fileList) return;
+    setAnswerUploadFiles(Array.from(fileList).filter(file => file.name.toLowerCase().endsWith('.asc')));
+  };
+
+  const handleAnswerUpload = async () => {
+    if (!answerUploadName.trim()) { setAnswerUploadError('이름을 입력해주세요.'); return; }
+    if (answerUploadFiles.length === 0) { setAnswerUploadError('ASC 파일을 최소 1개 이상 선택해주세요.'); return; }
+    setAnswerUploading(true); setAnswerUploadError(null);
+    try {
+      const created = await createAnswerDataset({ name: answerUploadName.trim(), files: answerUploadFiles });
+      await refreshAnswerDatasets(created.id);
+      setAnswerMode('SELECT');
+      setAnswerUploadName('');
+      setAnswerUploadFiles([]);
+    } catch (e: unknown) {
+      setAnswerUploadError(e instanceof Error ? e.message : '업로드에 실패했습니다.');
+    } finally {
+      setAnswerUploading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedModel) {
       setError('모델 버전을 선택해주세요.');
       return;
     }
-    if (ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file)) {
+    if (inputMode === 'LOAD' && !selectedGroup) {
+      setError('불러올 ASC 입력 묶음을 선택해주세요.');
+      return;
+    }
+    if (inputMode === 'UPLOAD' && (ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file))) {
       setError(ascFolder.validationError ?? '입력 ASC 폴더에서 최소 4개의 파일을 선택해주세요.');
       return;
     }
     setSubmitting(true); setError(null);
     try {
       await onSubmit(
-        ascFolder.mappedFiles,
+        inputMode === 'UPLOAD' ? ascFolder.mappedFiles : null,
         selectedModel.version,
         memo,
         DEFAULT_OBSERVATION_DATASET_DIR,
         null,
+        inputMode === 'LOAD' ? selectedGroup?.path ?? null : null,
+        inputMode === 'LOAD' ? selectedGroup?.files ?? [] : [],
+        answerDatasetId,
       );
       onClose();
     }
@@ -483,7 +605,7 @@ function AddTcModal({
       <div className="relative z-10 w-full max-w-2xl mx-4 bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">새 실행</h2>
+            <h2 className="text-lg font-bold text-gray-900">새 테스트케이스</h2>
             <p className="text-xs text-gray-400 mt-0.5">QPF 모델로 강우장을 예측합니다. 선행시간 10~180분 전체 자동 계산.</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 mt-0.5">
@@ -530,8 +652,161 @@ function AddTcModal({
 
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">입력 ASC 파일</p>
-            <AscFolderSlot state={ascFolder} onChange={setAscFolder} />
-            <p className="text-[11px] text-gray-400 mt-2">폴더 안 파일명 시각 기준으로 최근 4개 파일을 T-30/T-20/T-10/T에 자동 매핑합니다.</p>
+            <div className="mb-3 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              {[
+                { key: 'LOAD' as InputSourceMode, label: '수집 묶음 불러오기' },
+                { key: 'UPLOAD' as InputSourceMode, label: '직접 업로드' },
+              ].map(item => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => { setInputMode(item.key); setError(null); }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    inputMode === item.key ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {inputMode === 'LOAD' ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-gray-700">데이터 수집 묶음</p>
+                    <p className="mt-1 text-[11px] text-gray-400">데이터 수집 탭에서 생성한 ASC 4개 묶음을 바로 사용합니다.</p>
+                  </div>
+                  {loadingGroups && <div className="h-4 w-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+                </div>
+                <select
+                  value={selectedGroupId}
+                  onChange={event => setSelectedGroupId(event.target.value)}
+                  disabled={loadingGroups || datasetGroups.length === 0}
+                  className="mt-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  {datasetGroups.length === 0 ? (
+                    <option value="">불러올 ASC 묶음 없음</option>
+                  ) : (
+                    datasetGroups.map(group => (
+                      <option key={group.id} value={group.id}>{group.name} · {group.file_count}개</option>
+                    ))
+                  )}
+                </select>
+                {selectedGroup && (
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <p className="break-all font-mono text-[11px] text-gray-500">{selectedGroup.path}</p>
+                    <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5">
+                      {selectedGroup.files.map(file => (
+                        <p key={file} className="truncate font-mono text-[11px] text-gray-700">{file}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <AscFolderSlot state={ascFolder} onChange={setAscFolder} />
+                <p className="text-[11px] text-gray-400 mt-2">파일명 시각 기준으로 최근 4개 파일을 자동 매핑합니다.</p>
+              </>
+            )}
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">정답 데이터셋</p>
+            <div className="mb-3 inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              {[
+                { key: 'SELECT' as AnswerSourceMode, label: '기존 데이터셋 선택' },
+                { key: 'UPLOAD' as AnswerSourceMode, label: '직접 업로드' },
+              ].map(item => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => { setAnswerMode(item.key); setAnswerUploadError(null); }}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    answerMode === item.key ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {answerMode === 'SELECT' ? (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-gray-700">등록된 정답 데이터셋</p>
+                    <p className="mt-1 text-[11px] text-gray-400">선택한 정답 데이터셋과 비교해 MAE/RMSE/CSI를 계산합니다.</p>
+                  </div>
+                  {loadingAnswerSets && <div className="h-4 w-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+                </div>
+                <select
+                  value={answerDatasetId ?? ''}
+                  onChange={e => setAnswerDatasetId(e.target.value ? Number(e.target.value) : null)}
+                  disabled={loadingAnswerSets || answerDatasets.length === 0}
+                  className="mt-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  {answerDatasets.length === 0 ? (
+                    <option value="">등록된 정답 데이터셋 없음</option>
+                  ) : (
+                    answerDatasets.map(dataset => (
+                      <option key={dataset.id} value={dataset.id}>{dataset.name} · {dataset.file_count}개</option>
+                    ))
+                  )}
+                </select>
+                {selectedAnswerDataset && (
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+                    <p className="break-all font-mono text-[11px] text-gray-500">{selectedAnswerDataset.path}</p>
+                    <p className="mt-1 text-[11px] text-gray-400">{selectedAnswerDataset.file_count}개 파일</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                <input
+                  type="text"
+                  value={answerUploadName}
+                  onChange={e => setAnswerUploadName(e.target.value)}
+                  placeholder="데이터셋 이름"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                />
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); handleAnswerFiles(e.dataTransfer.files); }}
+                  onClick={() => answerFileInputRef.current?.click()}
+                  className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-white px-6 py-5 text-center transition hover:border-blue-400 hover:bg-blue-50"
+                >
+                  <p className="text-sm text-gray-600">클릭하거나 파일을 끌어다 놓으세요</p>
+                  <p className="mt-1 text-xs text-gray-400">.asc 파일만 인식됩니다</p>
+                  <input
+                    ref={answerFileInputRef}
+                    type="file"
+                    multiple
+                    accept=".asc"
+                    onChange={e => handleAnswerFiles(e.target.files)}
+                    className="hidden"
+                  />
+                </div>
+                {answerUploadFiles.length > 0 && (
+                  <p className="text-xs text-gray-500">{answerUploadFiles.length}개 파일 선택됨</p>
+                )}
+                {answerUploadError && (
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{answerUploadError}</p>
+                )}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleAnswerUpload}
+                    disabled={answerUploading}
+                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                  >
+                    {answerUploading && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    {answerUploading ? '업로드 중...' : '업로드'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -547,10 +822,14 @@ function AddTcModal({
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex-shrink-0">취소</button>
           <button
             onClick={handleSubmit}
-            disabled={submitting || !selectedModel || !!ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file)}
+            disabled={
+              submitting || !selectedModel ||
+              (inputMode === 'LOAD' && !selectedGroup) ||
+              (inputMode === 'UPLOAD' && (!!ascFolder.validationError || Object.values(ascFolder.mappedFiles).some(file => !file.file)))
+            }
             className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2 flex-shrink-0">
             {submitting && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-            새 실행
+            새 테스트케이스
           </button>
         </div>
       </div>
@@ -565,10 +844,9 @@ export default function ExperimentDetailPage() {
   const router = useRouter();
   const expId  = Number(params.id);
 
-  // 실험 환경 조회 (클라이언트 localStorage 기준)
-  const [experiment, setExperiment] = useState<ClientExperiment | null | undefined>(undefined);
-  // 실행 = 이 실험에만 매핑된 실 백엔드 job (localStorage 맵 기준)
-  const [userTcIds,  setUserTcIds]  = useState<number[]>([]);
+  // 실험 환경 조회 (서버 기준)
+  const [experiment, setExperiment] = useState<Experiment | null | undefined>(undefined);
+  // 테스트케이스 = 이 실험에 서버가 직접 연결해둔 job (experiment_id 기준)
   const [realJobs,   setRealJobs]   = useState<TrainingJob[]>([]);
   const [resultMap,  setResultMap]  = useState<Record<number, TrainingResult>>({});
   const [loading,    setLoading]    = useState(true);
@@ -576,21 +854,19 @@ export default function ExperimentDetailPage() {
   const [models,              setModels]              = useState<ModelVersion[]>([]);
   const [selectedId,          setSelectedId]          = useState<number | null>(null);
   const [goldJobId,           setGoldJobId]           = useState<number | null>(null);
-  const [logs,                setLogs]                = useState<string[]>([]);
-  const [logsLoading,         setLogsLoading]         = useState(false);
-  const logsEndRef = useRef<HTMLDivElement>(null);
   const prevJobStatusRef = useRef<Record<number, string>>({});
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'COMPLETED' | 'FAILED' | 'RUNNING' | 'QUEUED'>('ALL');
   const [sortBy,        setSortBy]      = useState<'latest' | 'mae' | 'rmse' | 'csi'>('latest');
+  const [page,          setPage]        = useState(1);
   const [compareIds,    setCompareIds]  = useState<Set<number>>(new Set());
   const [showCompare,   setShowCompare] = useState(false);
   const [deletingId,    setDeletingId]  = useState<number | null>(null);
 
-  // 실험 환경 로드 (클라이언트 localStorage 기준)
+  // 실험 환경 로드 (서버 기준)
   useEffect(() => {
-    const found = loadClientExperiments().find(e => e.id === expId) ?? null;
-    setExperiment(found);
-    if (found) setUserTcIds(getUserTcJobIds(expId));
+    getExperiment(expId)
+      .then(setExperiment)
+      .catch(() => setExperiment(null));
     try {
       const saved = localStorage.getItem(`${GOLD_MEDAL_KEY_PREFIX}${expId}`);
       setGoldJobId(saved ? Number(saved) : null);
@@ -609,25 +885,48 @@ export default function ExperimentDetailPage() {
     });
   };
 
-  // 실행 Map 변경 반영 (실행 추가 후)
-  const refreshTcIds = useCallback(() => {
-    setUserTcIds(getUserTcJobIds(expId));
-  }, [expId]);
-
-  // 실 백엔드 작업 목록 로드
+  // 실 백엔드 작업 목록 로드 (experiment_id로 서버가 이미 필터링 — 상태 무관)
   const fetchJobs = useCallback(() => {
-    getExperimentJobs()
+    getTrainingJobsByExperiment(expId)
       .then(data => setRealJobs(data))
       .catch(() => setRealJobs([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [expId]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // 실행 = 이 실험에만 매핑된 실 백엔드 job
-  const tcJobs = realJobs.filter(j => userTcIds.includes(j.job_id));
+  const tcJobs = realJobs;
 
-  // 완료된 실행의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
+  // 완료 테스트케이스별 요약 지표 (실데이터 없으면 null — "-"로 표시됨)
+  const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null }> = {};
+  for (const job of tcJobs) {
+    if (job.status.toUpperCase() !== 'COMPLETED') continue;
+    tcSummary[job.job_id] = parseMetrics(resultMap[job.job_id]?.metrics).summary;
+  }
+
+  // 상태 필터 + 정렬 (MAE/RMSE는 낮을수록, CSI는 높을수록 좋은 테스트케이스)
+  const visibleJobs = tcJobs
+    .filter(job => statusFilter === 'ALL' || job.status.toUpperCase() === statusFilter)
+    .slice()
+    .sort((a, b) => {
+      if (sortBy === 'latest') return (b.created_at ?? '').localeCompare(a.created_at ?? '');
+      const av = tcSummary[a.job_id]?.[sortBy];
+      const bv = tcSummary[b.job_id]?.[sortBy];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return sortBy === 'csi' ? bv - av : av - bv;
+    });
+
+  const totalPages = Math.max(1, Math.ceil(visibleJobs.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedJobs = visibleJobs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
+
+  useEffect(() => { setPage(1); }, [statusFilter, sortBy]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  // 완료된 테스트케이스의 성능 지표 조회 (백엔드가 metrics를 채우면 자동 표시 — 현재는 빈 값)
   useEffect(() => {
     const completed = tcJobs.filter(j => j.status.toUpperCase() === 'COMPLETED' && !(j.job_id in resultMap));
     if (completed.length === 0) return;
@@ -638,15 +937,13 @@ export default function ExperimentDetailPage() {
     });
   }, [tcJobs, resultMap]);
 
-  // 활성 작업 폴링 (사용자 추가 실행이 실행 중일 때만)
+  // 활성 작업 폴링 (테스트케이스가 실행 중일 때만)
   useEffect(() => {
-    const hasActive = realJobs
-      .filter(j => userTcIds.includes(j.job_id))
-      .some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
+    const hasActive = realJobs.some(j => ['RUNNING', 'QUEUED'].includes(j.status.toUpperCase()));
     if (!hasActive) return;
-    const id = setInterval(() => getExperimentJobs().then(setRealJobs).catch(() => {}), POLL_MS);
+    const id = setInterval(() => getTrainingJobsByExperiment(expId).then(setRealJobs).catch(() => {}), POLL_MS);
     return () => clearInterval(id);
-  }, [realJobs, userTcIds]);
+  }, [realJobs, expId]);
 
   // 브라우저 알림 권한 요청 (최초 1회)
   useEffect(() => {
@@ -663,7 +960,7 @@ export default function ExperimentDetailPage() {
       const status = job.status.toUpperCase();
       if (prevStatus && ['RUNNING', 'QUEUED'].includes(prevStatus) && ['COMPLETED', 'FAILED'].includes(status)) {
         const name = formatExecutionName(job.experiment_name, resultMap[job.job_id]?.params.run_datetime);
-        new Notification(status === 'COMPLETED' ? '실행 완료' : '실행 실패', { body: name });
+        new Notification(status === 'COMPLETED' ? '테스트케이스 완료' : '테스트케이스 실패', { body: name });
       }
       prevJobStatusRef.current[job.job_id] = status;
     }
@@ -676,42 +973,20 @@ export default function ExperimentDetailPage() {
       .catch(() => setModels(mergeRegisteredModels(FALLBACK_MODELS)));
   }, []);
 
-  // 실행 중 로그
-  const selectedJob       = tcJobs.find(j => j.job_id === selectedId) ?? null;
-  const isSelectedRunning = selectedJob?.status.toUpperCase() === 'RUNNING';
-
-  useEffect(() => {
-    if (selectedId == null || !isSelectedRunning) { setLogs([]); return; }
-    setLogsLoading(true);
-    getTrainingLogs(selectedId)
-      .then(r => setLogs(r.logs)).catch(() => setLogs([]))
-      .finally(() => {
-        setLogsLoading(false);
-        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-      });
-  }, [selectedId, isSelectedRunning]);
-
-  useEffect(() => {
-    if (selectedId == null || !isSelectedRunning) return;
-    const id = setInterval(() => {
-      getTrainingLogs(selectedId).then(r => {
-        setLogs(r.logs);
-        setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-      }).catch(() => {});
-    }, POLL_MS);
-    return () => clearInterval(id);
-  }, [selectedId, isSelectedRunning]);
-
-  // 실행 제출
+  // 테스트케이스 제출
   const handleSubmitTc = async (
-    files: FormFiles,
+    files: FormFiles | null,
     modelVersion: string,
     memo: string,
     observationDatasetDir: string | null,
     outputDir: string | null,
+    inputDatasetDir: string | null,
+    inputDatasetFiles: string[],
+    answerDatasetId: number | null,
   ) => {
-    const runDt = getCompactDtFromFilename(files.t3.name) ?? getNowDt();
-    const requester = getUsername() ?? 'admin';
+    const sourceFiles = files ? Object.values(files).map(file => file.name) : inputDatasetFiles;
+    const runDt = getCompactDtFromFilename(sourceFiles[sourceFiles.length - 1] ?? null) ?? getNowDt();
+    const requester = getCurrentUsername();
     const selectedModel = models.find(model => model.version === modelVersion);
     const architecture = selectedModel?.metrics?.architecture === 'multi'
       ? 'multi'
@@ -722,12 +997,12 @@ export default function ExperimentDetailPage() {
     const modelMode = backendModelVersion === 'ver1' || backendModelVersion === 'ver1_tflite'
       ? 'single'
       : architecture ?? 'multi';
-    const makeFile = async (fs: FileState, offset: number): Promise<AscFileInput> =>
+    const makeFile = (fs: FileState): AscFileInput =>
       fs.file
-        ? { filename: fs.name, timestamp: calculateTimestamp(runDt, offset), file_data: await fileToBase64(fs.file) }
-        : { filename: null, timestamp: null, file_data: null };
+        ? { filename: fs.name, file: fs.file }
+        : { filename: null, file: null };
 
-    const result = await createExperimentJob({
+    const payload = {
       user_name:               requester,
       run_datetime:           toApiRunDatetime(runDt),
       model_version:          backendModelVersion,
@@ -735,26 +1010,28 @@ export default function ExperimentDetailPage() {
       forecast_steps:         ALL_STEPS,
       include_preview_image:  true,
       experiment_name:        formatExecutionName(null, runDt),
+      experiment_id:          expId,
       experiment_tags:        null,
       experiment_memo:        memo || null,
       observation_dataset_id: null,
       observation_dataset_dir: observationDatasetDir,
+      answer_dataset_id:      answerDatasetId,
       output_dir:             outputDir,
-      input_files: {
-        file_t0: await makeFile(files.t0, -30),
-        file_t1: await makeFile(files.t1, -20),
-        file_t2: await makeFile(files.t2, -10),
-        file_t3: await makeFile(files.t3,   0),
-      },
-    });
+      input_dataset_dir:       inputDatasetDir,
+      input_files: files ? {
+        file_t0: makeFile(files.t0),
+        file_t1: makeFile(files.t1),
+        file_t2: makeFile(files.t2),
+        file_t3: makeFile(files.t3),
+      } : undefined,
+    };
 
-    // 실행 맵 갱신 (백엔드 experiment_id 연동 전 클라이언트 측 보관)
-    // 메모도 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
+    const result = await createExperimentJob(payload);
+
+    // 메모/모델메타는 아직 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
     if (result?.job_id) {
-      addTcToExpMap(expId, result.job_id);
       if (memo) saveTcMemo(result.job_id, memo);
       saveTcModelMeta(result.job_id, { modelVersion, architecture: modelMode, requester });
-      refreshTcIds();
     }
     fetchJobs();
   };
@@ -790,29 +1067,6 @@ export default function ExperimentDetailPage() {
   const totalTc = tcJobs.length;
   const selectableModels = models.filter(model => !['QUEUED', 'RUNNING'].includes((model.status ?? '').toUpperCase()));
 
-  // 완료 실행별 요약 지표
-  const tcSummary: Record<number, { mae: number | null; rmse: number | null; csi: number | null; isSample: boolean }> = {};
-  for (const job of tcJobs) {
-    if (job.status.toUpperCase() !== 'COMPLETED') continue;
-    const ver = resultMap[job.job_id]?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? null;
-    const pm = metricsOrSample(resultMap[job.job_id]?.metrics, job.job_id, ver);
-    tcSummary[job.job_id] = { ...pm.summary, isSample: pm.isSample };
-  }
-
-  // 상태 필터 + 정렬 (MAE/RMSE는 낮을수록, CSI는 높을수록 좋은 실행)
-  const visibleJobs = tcJobs
-    .filter(job => statusFilter === 'ALL' || job.status.toUpperCase() === statusFilter)
-    .slice()
-    .sort((a, b) => {
-      if (sortBy === 'latest') return (b.created_at ?? '').localeCompare(a.created_at ?? '');
-      const av = tcSummary[a.job_id]?.[sortBy];
-      const bv = tcSummary[b.job_id]?.[sortBy];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      return sortBy === 'csi' ? bv - av : av - bv;
-    });
-
   const toggleCompare = (jobId: number) => {
     setCompareIds(prev => {
       const next = new Set(prev);
@@ -822,18 +1076,16 @@ export default function ExperimentDetailPage() {
   };
 
   const handleDeleteJob = async (jobId: number) => {
-    if (!window.confirm('이 실행을 삭제할까요? 결과 파일도 함께 삭제되며 되돌릴 수 없습니다.')) return;
+    if (!window.confirm('이 테스트케이스를 삭제할까요? 결과 파일도 함께 삭제되며 되돌릴 수 없습니다.')) return;
     setDeletingId(jobId);
     try {
       await deleteTraining(jobId);
-      removeTcFromExpMap(expId, jobId);
       setCompareIds(prev => {
         const next = new Set(prev);
         next.delete(jobId);
         return next;
       });
       if (selectedId === jobId) setSelectedId(null);
-      refreshTcIds();
       fetchJobs();
     } catch (err) {
       alert(err instanceof Error ? err.message : '삭제에 실패했습니다.');
@@ -850,7 +1102,7 @@ export default function ExperimentDetailPage() {
       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
       </svg>
-      새 실행
+      새 테스트케이스
     </button>
   );
 
@@ -871,7 +1123,7 @@ export default function ExperimentDetailPage() {
         {experiment.name}
       </Link>
       <span className="text-gray-300">&gt;</span>
-      <span className="truncate">실행</span>
+      <span className="truncate">테스트케이스</span>
     </span>
   );
 
@@ -893,15 +1145,22 @@ export default function ExperimentDetailPage() {
         />
       )}
 
-      {experiment.description && (
-        <p className="mb-4 text-sm text-gray-500">{experiment.description}</p>
+      {(experiment.description || experiment.created_by) && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {experiment.description && (
+            <p className="text-sm text-gray-500">{experiment.description}</p>
+          )}
+          {experiment.created_by && (
+            <span className="text-xs text-gray-400 font-mono">생성자: {experiment.created_by}</span>
+          )}
+        </div>
       )}
 
-      {/* 실행 테이블 */}
+      {/* 테스트케이스 테이블 */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-gray-700">실행 목록</span>
+            <span className="text-sm font-semibold text-gray-700">테스트케이스 목록</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -942,7 +1201,7 @@ export default function ExperimentDetailPage() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              {['', '실행 이름', '상태', '등록일', '소요시간', '모델', 'MAE', 'RMSE', 'CSI', '삭제'].map((h, i) => (
+              {['', '테스트케이스 이름', '생성자', '상태', '등록일', '소요시간', '예상시간', '모델', 'MAE', 'RMSE', 'CSI', '삭제'].map((h, i) => (
                 <th key={i} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -950,8 +1209,8 @@ export default function ExperimentDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && visibleJobs.length === 0 && <SkeletonTableRows rows={4} cols={10} />}
-            {visibleJobs.flatMap(job => {
+            {loading && pagedJobs.length === 0 && <SkeletonTableRows rows={4} cols={12} />}
+            {pagedJobs.flatMap(job => {
               const s          = job.status.toUpperCase();
               const isSelected = job.job_id === selectedId;
               const toggle     = () => setSelectedId(prev => prev === job.job_id ? null : job.job_id);
@@ -964,10 +1223,7 @@ export default function ExperimentDetailPage() {
               const displayMode = storedMeta?.architecture
                 ?? (registryArch === 'multi' || registryArch === 'single' ? registryArch : null)
                 ?? job.mode;
-              const displayRequester = displayUsername(
-                storedMeta?.requester
-                  ?? (job.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? null),
-              );
+              const displayRequester = displayUsername(job.user_name);
               const sum        = tcSummary[job.job_id];
               const fmtCell = (v: number | null | undefined) =>
                 v == null
@@ -1000,8 +1256,8 @@ export default function ExperimentDetailPage() {
                           toggleGoldJob(job.job_id);
                         }}
                         aria-pressed={goldJobId === job.job_id}
-                        aria-label="대표 실행 표시"
-                        title="대표 실행 표시"
+                        aria-label="대표 테스트케이스 표시"
+                        title="대표 테스트케이스 표시"
                         className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
                           goldJobId === job.job_id
                             ? 'border-amber-300 bg-amber-50'
@@ -1017,9 +1273,11 @@ export default function ExperimentDetailPage() {
                       <span className="font-semibold text-gray-800 text-sm leading-tight">{executionName}</span>
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs font-mono whitespace-nowrap">{displayRequester}</td>
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
                   <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtEta(job)}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-semibold ${/v3/i.test(modelVer) ? 'text-emerald-600' : 'text-amber-600'}`}>
                       {modelVer}
@@ -1041,8 +1299,8 @@ export default function ExperimentDetailPage() {
                         onClick={() => handleDeleteJob(job.job_id)}
                         disabled={deletingId === job.job_id}
                         className="inline-flex items-center justify-center rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                        title="실행 삭제"
-                        aria-label="실행 삭제"
+                        title="테스트케이스 삭제"
+                        aria-label="테스트케이스 삭제"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.9} viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 7h12M10 11v6m4-6v6M9 7l1-2h4l1 2m-8 0 1 13h8l1-13" />
@@ -1057,14 +1315,14 @@ export default function ExperimentDetailPage() {
 
               const detailRow = (
                 <tr key={`${job.job_id}-detail`}>
-                  <td colSpan={10} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
+                  <td colSpan={12} className="bg-blue-50/40 border-b border-gray-100 px-6 py-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3 mb-3">
                       {[
                         { label: '등록일',    value: fmtDt(job.created_at) },
                         { label: '시작일',    value: fmtDt(job.started_at) },
                         { label: '완료일',    value: fmtDt(job.finished_at) },
                         { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
-                        { label: '요청자',    value: displayRequester },
+                        { label: '생성자',    value: displayRequester },
                         { label: '모드',      value: displayMode },
                       ].map(row => (
                         <div key={row.label}>
@@ -1073,9 +1331,12 @@ export default function ExperimentDetailPage() {
                         </div>
                       ))}
                       {s === 'RUNNING' && (
-                        <div className="col-span-2">
-                          <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-1.5">진행률</p>
-                          <ProgressBar progress={job.progress} currentEpoch={job.current_epoch} totalEpochs={job.total_epochs} />
+                        <div className="col-span-2 md:col-span-4 rounded-lg border border-blue-100 bg-white px-4 py-3">
+                          <div className="mb-2 flex items-center justify-between gap-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">진행률</p>
+                            <p className="text-xs font-semibold text-blue-700">{fmtEta(job)}</p>
+                          </div>
+                          <ProgressBar job={job} />
                         </div>
                       )}
                     </div>
@@ -1100,27 +1361,6 @@ export default function ExperimentDetailPage() {
                         </svg>
                       </Link>
                     )}
-
-                    {s === 'RUNNING' && (
-                      <div className="mt-3 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
-                        <div className="px-5 py-3 border-b border-gray-700 flex items-center gap-3">
-                          <span className="text-sm font-semibold text-gray-200 flex-1">
-                            로그
-                            <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 font-normal">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              실시간
-                            </span>
-                          </span>
-                          {logsLoading && <div className="w-3.5 h-3.5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
-                        </div>
-                        <div className="p-4 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 leading-5 space-y-px">
-                          {logs.length === 0
-                            ? <span className="text-gray-500">로그를 불러오는 중이거나 아직 기록된 로그가 없습니다.</span>
-                            : logs.map((line, i) => <div key={i}>{line}</div>)}
-                          <div ref={logsEndRef} />
-                        </div>
-                      </div>
-                    )}
                   </td>
                 </tr>
               );
@@ -1132,12 +1372,37 @@ export default function ExperimentDetailPage() {
 
         {tcJobs.length === 0 && !loading && (
           <div className="py-16 text-center text-gray-400 text-sm">
-            {totalTc === 0 ? '실험 이력이 없습니다. 새 실행 버튼으로 검증을 시작하세요.' : '로드 중...'}
+            {totalTc === 0 ? '실험 이력이 없습니다. 새 테스트케이스 버튼으로 검증을 시작하세요.' : '로드 중...'}
+          </div>
+        )}
+
+        {visibleJobs.length > 0 && (
+          <div className="h-12 flex items-center justify-center border-t border-gray-100 px-5 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+              {pagination.map(item => (
+                typeof item === 'number' ? (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setPage(item)}
+                    className={`min-w-5 px-1 py-1 transition-colors ${
+                      item === safePage
+                        ? 'font-semibold text-blue-600 underline underline-offset-4'
+                        : 'text-gray-500 hover:text-blue-600'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ) : (
+                  <span key={item} className="px-1 text-gray-300">...</span>
+                )
+              ))}
+            </div>
           </div>
         )}
 
         <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-400">
-          총 {totalTc}개 실행
+          총 {totalTc}개 테스트케이스
         </div>
       </div>
     </Layout>

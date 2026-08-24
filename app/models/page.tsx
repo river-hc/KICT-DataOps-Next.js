@@ -120,7 +120,6 @@ export default function Models() {
       <RegisterModal
         onClose={() => setShowRegister(false)}
         onDone={refresh}
-        modelBasePath={modelBasePath}
       />
     )}
     <Layout titleActions={titleActions}>

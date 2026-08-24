@@ -1,12 +1,14 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { resolveTitle } from './Header';
 import Footer from './Footer';
 import UserPopup from './UserPopup';
+import AiAssistantWidget from './AiAssistantWidget';
+import { isLoggedIn } from './api';
 
 const THEME = process.env.NEXT_PUBLIC_THEME;
 
@@ -56,6 +58,18 @@ const Icons = {
       <path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" />
     </svg>
   ),
+  dataCollection: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 18a4 4 0 01-1-7.87A5.5 5.5 0 0116.9 8H17a4 4 0 011 7.87" />
+      <path d="M12 12v7M9 16l3 3 3-3" />
+    </svg>
+  ),
+  answerDataset: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12l3 3 5-6" />
+    </svg>
+  ),
 };
 
 interface NavItem {
@@ -78,7 +92,9 @@ const navItems: NavEntry[] = [
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
+  { name: '정답 데이터',      href: '/answer-datasets', icon: Icons.answerDataset },
   { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
+  { name: '데이터 수집',      href: '/data-collection', icon: Icons.dataCollection },
 ];
 
 const modernNavItems: NavEntry[] = [
@@ -86,7 +102,9 @@ const modernNavItems: NavEntry[] = [
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
   { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
+  { name: '정답 데이터',      href: '/answer-datasets', icon: Icons.answerDataset },
   { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
+  { name: '데이터 수집',      href: '/data-collection', icon: Icons.dataCollection },
 ];
 
 interface LayoutProps {
@@ -308,9 +326,27 @@ function LayoutSidebar({ children, fullHeight = false, title, titleActions }: La
 }
 
 export default function Layout({ children, fullHeight = false, title, titleActions }: LayoutProps) {
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // 로그인 안 한 상태로 페이지 URL을 직접 열면 /login으로 돌려보낸다.
+  // (클라이언트 쪽 검사라 완전한 보안은 아니지만, 로그인 없이 링크로 바로 들어가지는 것은 막는다.)
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      router.replace('/login');
+      return;
+    }
+    setAuthChecked(true);
+  }, [router]);
+
+  if (!authChecked) return null;
+
   return (
-    <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions}>
-      {children}
-    </LayoutSidebar>
+    <>
+      <LayoutSidebar fullHeight={fullHeight} title={title} titleActions={titleActions}>
+        {children}
+      </LayoutSidebar>
+      <AiAssistantWidget />
+    </>
   );
 }

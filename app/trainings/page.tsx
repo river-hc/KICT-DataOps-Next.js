@@ -176,10 +176,10 @@ export default function Trainings() {
         run_datetime: null,
         model_version: null,
         input_files: {
-          file_t0: { filename: null, timestamp: null, file_data: null },
-          file_t1: { filename: null, timestamp: null, file_data: null },
-          file_t2: { filename: null, timestamp: null, file_data: null },
-          file_t3: { filename: null, timestamp: null, file_data: null },
+          file_t0: { filename: null, file: null },
+          file_t1: { filename: null, file: null },
+          file_t2: { filename: null, file: null },
+          file_t3: { filename: null, file: null },
         },
       });
       savePendingTrainingModel({

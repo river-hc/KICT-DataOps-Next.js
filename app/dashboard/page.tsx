@@ -8,13 +8,14 @@ import DashboardKanban   from '@/lib/DashboardKanban';
 import { ACCOUNT_PROFILE_EVENT } from '@/lib/account';
 import {
   getExperimentJobs,
+  getExperiments,
   getTrainingResult,
   displayUsername,
   formatExecutionName,
   type TrainingJob,
+  type Experiment,
 } from '@/lib/api';
-import { metricsOrSample } from '@/lib/metrics';
-import { loadClientExperiments, loadExpTcMap } from '@/lib/experimentStore';
+import { parseMetrics } from '@/lib/metrics';
 import { SkeletonBlock, SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 테마 분기 ────────────────────────────────────────────────────────────────
@@ -40,6 +41,23 @@ const DONUT_SEGS: { key: StatusKey; label: string; color: string }[] = [
   { key: 'COMPLETED', label: '완료',    color: '#0ea5e9' },
   { key: 'FAILED',    label: '실패',    color: '#ef4444' },
 ];
+
+const PAGE_SIZE = 10;
+type PageItem = number | 'ellipsis-start' | 'ellipsis-end';
+
+function pageItems(totalPages: number, currentPage: number): PageItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: PageItem[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push('ellipsis-start');
+  for (let i = start; i <= end; i += 1) items.push(i);
+  if (end < totalPages - 1) items.push('ellipsis-end');
+  items.push(totalPages);
+  return items;
+}
 
 function formatToday(): string {
   return formatDateKey(new Date());
@@ -67,14 +85,9 @@ function statusMatches(job: TrainingJob, status: TabKey): boolean {
   return s === status;
 }
 
-function findExperimentName(jobId: number): string {
-  const tcMap = loadExpTcMap();
-  const experiments = loadClientExperiments();
-  for (const exp of experiments) {
-    const mappedIds = tcMap[exp.id] ?? exp.tc_job_ids;
-    if (mappedIds.includes(jobId)) return exp.name;
-  }
-  return '-';
+function findExperimentName(experimentId: number | null | undefined, experiments: Experiment[]): string {
+  if (experimentId == null) return '-';
+  return experiments.find(exp => exp.id === experimentId)?.name ?? '-';
 }
 
 function StatusDonutChart({
@@ -217,23 +230,34 @@ const STATUS_LABEL: Record<TabKey, string> = {
   FAILED: '실패',
 };
 
-// 실행별 결과 테이블 — 도넛 차트에서 선택한 상태의 당일 작업 표시
+// 테스트케이스별 결과 테이블 — 도넛 차트에서 선택한 상태의 당일 작업 표시
 function TcResultsTable({
   pts,
   jobs,
+  experiments,
   activeStatus,
   loading,
 }: {
   pts: ChartPoint[];
   jobs: TrainingJob[];
+  experiments: Experiment[];
   activeStatus: TabKey;
   loading: boolean;
 }) {
   const router = useRouter();
+  const [page, setPage] = useState(1);
   const metricByJobId = new Map(pts.map(pt => [pt.job_id, pt]));
   const rows = jobs
     .filter(job => statusMatches(job, activeStatus))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagination = pageItems(totalPages, safePage);
+
+  useEffect(() => { setPage(1); }, [activeStatus]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
@@ -258,7 +282,7 @@ function TcResultsTable({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                {['실험명', '사용자', '실행', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
+                {['실험명', '사용자', '테스트케이스', '모델', 'MAE', 'RMSE', 'CSI'].map(h => (
                   <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
@@ -266,7 +290,7 @@ function TcResultsTable({
               </tr>
             </thead>
             <tbody>
-              {rows.map(job => {
+              {pagedRows.map(job => {
                 const metrics = metricByJobId.get(job.job_id);
                 const modelVersion = metrics?.sub ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
                 const executionName = formatExecutionName(job.experiment_name);
@@ -277,7 +301,7 @@ function TcResultsTable({
                   className={`border-b border-gray-100 transition-colors ${clickable ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
                   onClick={() => { if (clickable) router.push(`/experiment-results/${job.job_id}`); }}
                 >
-                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.job_id)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.experiment_id, experiments)}</td>
                   <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{displayUsername(job.user_name)}</td>
                   <td className="px-4 py-2.5 max-w-[180px]">
                     <p className="text-sm font-medium text-gray-800 truncate">{executionName}</p>
@@ -296,6 +320,31 @@ function TcResultsTable({
           </table>
         </div>
       )}
+
+      {rows.length > 0 && (
+        <div className="h-11 flex-shrink-0 flex items-center justify-center border-t border-gray-100 px-4 text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            {pagination.map(item => (
+              typeof item === 'number' ? (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setPage(item)}
+                  className={`min-w-5 px-1 py-1 transition-colors ${
+                    item === safePage
+                      ? 'font-semibold text-blue-600 underline underline-offset-4'
+                      : 'text-gray-500 hover:text-blue-600'
+                  }`}
+                >
+                  {item}
+                </button>
+              ) : (
+                <span key={item} className="px-1 text-gray-300">...</span>
+              )
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -304,6 +353,7 @@ function TcResultsTable({
 
 function Dashboard() {
   const [expJobs,      setExpJobs]      = useState<TrainingJob[]>([]);
+  const [experiments,  setExperiments]  = useState<Experiment[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [chartPts,     setChartPts]     = useState<ChartPoint[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
@@ -319,6 +369,7 @@ function Dashboard() {
 
   useEffect(() => {
     fetchAll().finally(() => setLoading(false));
+    getExperiments().then(setExperiments).catch(() => setExperiments([]));
   }, [fetchAll]);
 
   useEffect(() => {
@@ -358,7 +409,7 @@ function Dashboard() {
             ? `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
             : '-';
           const modelVersion = result?.params.model_version ?? job.experiment_name.match(/v\d/i)?.[0] ?? null;
-          const parsed = metricsOrSample(result?.metrics, job.job_id, modelVersion).summary;
+          const parsed = parseMetrics(result?.metrics).summary;
           pts.push({
             label,
             name:   formatExecutionName(job.experiment_name, result?.params.run_datetime),
@@ -417,6 +468,7 @@ function Dashboard() {
           <TcResultsTable
             pts={chartPts}
             jobs={todayJobs}
+            experiments={experiments}
             activeStatus={activeStatus}
             loading={chartLoading}
           />

@@ -79,7 +79,7 @@ export function getUserTcJobIds(expId: number): number[] {
   return loadExpTcMap()[expId] ?? [];
 }
 
-/** 실행 삭제 시 실험 매핑에서도 제거 */
+/** 테스트케이스 삭제 시 실험 매핑에서도 제거 */
 export function removeTcFromExpMap(expId: number, jobId: number): void {
   const map = loadExpTcMap();
   const existing = map[expId] ?? [];

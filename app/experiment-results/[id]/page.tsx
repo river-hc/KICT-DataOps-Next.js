@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
-import { getTraining, getTrainingResult, getTrainingLogs, getUsername, displayUsername, formatExecutionName, type TrainingJob, type TrainingResult } from '@/lib/api';
+import { getTraining, getTrainingResult, getTrainingLogs, getExperiment, displayUsername, formatExecutionName, type TrainingJob, type TrainingResult, type Experiment } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
-import { loadClientExperiments, loadExpTcMap, loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
+import { loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
 import { parseMetrics } from '@/lib/metrics';
 import { SkeletonBlock, SkeletonCard } from '@/lib/Skeleton';
 
@@ -36,20 +36,6 @@ function MetricBar({ metricKey, value }: { metricKey: string; value: number }) {
       </span>
     </div>
   );
-}
-
-// ─── 부모 실험 찾기 ───────────────────────────────────────────────────────────
-
-function findParentExperimentId(jobId: number): number | null {
-  // 사용자 추가 실행 매핑(localStorage)을 우선 — 가장 권위 있는 소스
-  const tcMap = loadExpTcMap();
-  for (const [expId, jobIds] of Object.entries(tcMap)) {
-    if ((jobIds as number[]).includes(jobId)) return Number(expId);
-  }
-  for (const exp of loadClientExperiments()) {
-    if (exp.tc_job_ids.includes(jobId)) return exp.id;
-  }
-  return null;
 }
 
 function fmtRunDate(dt: string): string {
@@ -93,6 +79,7 @@ export default function ExperimentResultDetail() {
   const [logs,         setLogs]         = useState<string[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [parentExpId,  setParentExpId]  = useState<number | null>(null);
+  const [parentExperiment, setParentExperiment] = useState<Experiment | null>(null);
   // 메모는 백엔드가 응답하지 않으므로 클라이언트 localStorage에서 직접 로드 (detail과 독립)
   const [memo,         setMemo]         = useState<string | null>(null);
 
@@ -104,7 +91,6 @@ export default function ExperimentResultDetail() {
   useEffect(() => {
     if (jobId == null) return;
     const id = jobId;
-    setParentExpId(findParentExperimentId(id));
     setMemo(loadTcMemo(id));
     Promise.all([
       getTraining(id).catch(() => null),
@@ -115,15 +101,19 @@ export default function ExperimentResultDetail() {
       setDetail(d);
       setLogs(l?.logs ?? []);
       setLoading(false);
+      setParentExpId(j?.experiment_id ?? null);
     });
   }, [jobId]);
 
+  // 부모 실험 정보 로드 (서버 기준)
+  useEffect(() => {
+    if (parentExpId == null) { setParentExperiment(null); return; }
+    getExperiment(parentExpId).then(setParentExperiment).catch(() => setParentExperiment(null));
+  }, [parentExpId]);
+
   const steps = detail?.params.forecast_steps ?? [];
   const storedMeta = jobId != null ? loadTcModelMeta(jobId) : null;
-  const displayRequester = displayUsername(
-    storedMeta?.requester
-      ?? (job?.user_name && job.user_name !== 'anonymous' ? job.user_name : getUsername() ?? null),
-  );
+  const displayRequester = displayUsername(job?.user_name);
 
   const goPrev = useCallback(() => {
     setIsPlaying(false);
@@ -186,12 +176,10 @@ export default function ExperimentResultDetail() {
   const hasMetricValues = pm.summary.mae != null || pm.summary.rmse != null || pm.summary.csi != null;
   const ascUrls        = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0 ? detail.asc_urls : undefined;
 
-  const parentExperiment = parentExpId != null
-    ? loadClientExperiments().find(exp => exp.id === parentExpId) ?? null
-    : null;
   const executionName = formatExecutionName(job?.experiment_name, detail?.params.run_datetime);
   const resultStatus = (job?.status ?? 'COMPLETED').toUpperCase();
   const isFailedResult = resultStatus === 'FAILED';
+  const failureMessage = detail?.error_message || job?.error_message;
 
   const title = (
     <span className="inline-flex items-center gap-2">
@@ -210,10 +198,10 @@ export default function ExperimentResultDetail() {
         href={parentExperiment ? `/experiments/${parentExperiment.id}` : '/experiments'}
         className="font-semibold hover:text-blue-600 transition-colors"
       >
-        실행
+        테스트케이스
       </Link>
       <span className="text-gray-300">&gt;</span>
-      <span className="truncate">실행 결과</span>
+      <span className="truncate">테스트케이스 결과</span>
     </span>
   );
 
@@ -226,8 +214,8 @@ export default function ExperimentResultDetail() {
           <div className="flex items-center gap-2 min-w-0">
             {/*
             <button
-              aria-label="실행 목록으로 돌아가기"
-              title="실행 목록으로 돌아가기"
+              aria-label="테스트케이스 목록으로 돌아가기"
+              title="테스트케이스 목록으로 돌아가기"
               onClick={() => router.push(parentExpId ? `/experiments/${parentExpId}` : '/experiments')}
               className="uiverse-back-chevron flex-shrink-0"
             >
@@ -267,17 +255,17 @@ export default function ExperimentResultDetail() {
 
       {isFailedResult ? (
         <div className="flex-1 min-h-0 flex flex-col gap-3">
-          {detail?.error_message && (
+          {failureMessage && (
             <div className="flex-shrink-0 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-red-500 mb-1">실패 원인</p>
-              <p className="text-xs text-red-700 font-mono whitespace-pre-wrap break-all">{detail.error_message}</p>
+              <p className="text-xs text-red-700 font-mono whitespace-pre-wrap break-all">{failureMessage}</p>
             </div>
           )}
           <LogPanel logs={logs} className="flex-1 min-h-0" />
         </div>
       ) : (
         <>
-      {/* 본문 2열×2행 — 행1: 뷰어 / 정보, 행2: 로그 / 메모 */}
+      {/* 본문 2열×2행 — 행1: 뷰어 / 정보, 행2: 메모 */}
       <div className="grid grid-cols-[9fr_16fr] grid-rows-[minmax(0,1fr)_8rem] gap-x-4 gap-y-3 flex-1 min-h-0">
 
         {/* (1,1) QPF 슬라이드 — 좌상단 */}
@@ -361,7 +349,7 @@ export default function ExperimentResultDetail() {
             </div>
           )}
 
-          {/* 카드 1행 배치: 성능 지표 · 모델 설정 · 검증 데이터 · 실행 일정 */}
+          {/* 카드 1행 배치: 성능 지표 · 모델 설정 · 검증 데이터 · 테스트케이스 일정 */}
           <div className="grid grid-cols-4 gap-3 flex-1 min-h-0">
 
             {/* 성능 지표 — 전체 단일 값 (MAE / RMSE / CSI) */}
@@ -417,6 +405,12 @@ export default function ExperimentResultDetail() {
               {metricSources ? (
                 <div className="space-y-4 pt-2">
                   <div className="min-w-0">
+                    <span className="text-xs text-gray-500 block mb-0.5">정답 데이터셋</span>
+                    <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
+                      {detail?.params.answer_dataset_name ?? '-'}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
                     <span className="text-xs text-gray-500 block mb-0.5">비교 데이터 경로</span>
                     <span className="text-xs font-medium text-gray-900 break-words block leading-relaxed">
                       {metricSources.observation_dataset_dir ?? '-'}
@@ -446,17 +440,17 @@ export default function ExperimentResultDetail() {
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <p className="text-xs text-gray-400 text-center">비교 데이터 없음</p>
-                  <p className="text-[11px] text-gray-300 text-center">실행 등록 시 경로 미지정</p>
+                  <p className="text-[11px] text-gray-300 text-center">테스트케이스 등록 시 경로 미지정</p>
                 </div>
               )}
             </div>
 
-            {/* 실행 일정 */}
+            {/* 테스트케이스 일정 */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-2.5 min-w-0 min-h-0 h-full overflow-y-auto">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">실행 일정</p>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">테스트케이스 일정</p>
               <div className="space-y-4 pt-2">
                 <div className="min-w-0">
-                  <span className="text-xs text-gray-500 block mb-0.5">요청자</span>
+                  <span className="text-xs text-gray-500 block mb-0.5">생성자</span>
                   <span className="text-xs font-medium text-gray-900 block break-words">{displayRequester}</span>
                 </div>
                 <div className="min-w-0">
@@ -482,11 +476,8 @@ export default function ExperimentResultDetail() {
 
         </div>
 
-        {/* (2,1) 로그 — 메모와 같은 행/높이 */}
-        <LogPanel logs={logs} className="h-full min-h-0" />
-
-        {/* (2,2) 메모 — 로그와 같은 행/높이 */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
+        {/* (2행) 메모 */}
+        <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
           <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo || '-'}</p>
         </div>
