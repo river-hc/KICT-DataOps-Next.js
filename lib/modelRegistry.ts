@@ -116,6 +116,12 @@ export function formatModelDateTime(value: string | null | undefined): string {
   return formatDateTime(value);
 }
 
+/** 초 단위까지 필요한 곳(마지막 검증 시각 등)에 사용 — "2026-08-24 08:38:17" */
+export function formatModelDateTimeFull(value: string | null | undefined): string {
+  if (!value) return '-';
+  return value.replace('T', ' ').slice(0, 19);
+}
+
 export function formatModelDate(value: string | null | undefined): string {
   return formatDate(value);
 }

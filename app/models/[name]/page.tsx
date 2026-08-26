@@ -3,29 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { archiveModel, deleteModel, getModels, selectModel, updateModel, type ModelVersion } from '@/lib/api';
-import { formatModelDateTime, getArchitecture } from '@/lib/modelRegistry';
+import { deleteModel, getModels, updateModel, type ModelVersion } from '@/lib/api';
+import { formatModelDateTime, formatModelDateTimeFull, getArchitecture } from '@/lib/modelRegistry';
 import { SkeletonBlock, SkeletonStatCards, SkeletonTableRows } from '@/lib/Skeleton';
-
-type ModelStatus = 'CREATED' | 'SELECTED' | 'ARCHIVED';
-
-function normalizeStatus(status: string | null | undefined): ModelStatus {
-  const value = (status ?? '').toUpperCase();
-  if (value === 'SELECTED') return 'SELECTED';
-  if (value === 'ARCHIVED') return 'ARCHIVED';
-  return 'CREATED';
-}
-
-function StatusBadge({ status }: { status: string | null | undefined }) {
-  const value = normalizeStatus(status);
-  const meta = {
-    CREATED: 'border-blue-100 bg-blue-50 text-blue-700',
-    SELECTED: 'border-emerald-100 bg-emerald-50 text-emerald-700',
-    ARCHIVED: 'border-blue-100 bg-blue-50 text-blue-700',
-  }[value];
-  const label = value === 'SELECTED' ? '사용 중' : '대기';
-  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${meta}`}>{label}</span>;
-}
 
 function ValidationBadge({ model }: { model: ModelVersion }) {
   const status = model.metrics?.validation_status ?? 'UNTESTED';
@@ -78,7 +58,6 @@ export default function ModelDetail() {
   const [editName, setEditName] = useState('');
   const [editVersion, setEditVersion] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ModelVersion | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -86,7 +65,7 @@ export default function ModelDetail() {
       const data = await getModels();
       setModels(data);
       const filtered = data.filter(model => model.model_name === modelName);
-      setActiveId(prev => prev ?? filtered.find(model => normalizeStatus(model.status) === 'SELECTED')?.id ?? filtered[0]?.id ?? null);
+      setActiveId(prev => prev ?? filtered[0]?.id ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '모델 정보를 불러오지 못했습니다.');
     } finally {
@@ -103,29 +82,6 @@ export default function ModelDetail() {
   ), [models, modelName]);
 
   const active = versions.find(model => model.id === activeId) ?? versions[0] ?? null;
-  const selected = versions.find(model => normalizeStatus(model.status) === 'SELECTED') ?? null;
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2000);
-  };
-
-  const runAction = async (id: number, action: 'select' | 'archive') => {
-    setBusyId(id);
-    setError(null);
-    try {
-      if (action === 'select') {
-        await selectModel(id);
-        showToast('운영 모델로 변경되었습니다.');
-      }
-      if (action === 'archive') await archiveModel(id);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '요청을 처리하지 못했습니다.');
-    } finally {
-      setBusyId(null);
-    }
-  };
 
   const handleEdit = async () => {
     if (!editTarget) return;
@@ -206,13 +162,6 @@ export default function ModelDetail() {
 
   return (
     <>
-    {/* 토스트 */}
-    {toast && (
-      <div className="fixed bottom-8 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white shadow-lg">
-        {toast}
-      </div>
-    )}
-
     {/* 수정 모달 */}
     {editTarget && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -271,9 +220,8 @@ export default function ModelDetail() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Stat label="버전 수" value={`${versions.length}개`} />
-          <Stat label="운영 버전" value={selected?.version ?? '지정 없음'} />
           <Stat label="실행 가능" value={`${versions.filter(v => v.metrics?.validation_status === 'READY').length}개`} />
         </div>
 
@@ -285,7 +233,7 @@ export default function ModelDetail() {
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  {['Version', '상태', '검증', '파일', '방식', '갱신', 'Actions'].map(header => (
+                  {['Version', '검증', '파일', '방식', '갱신', 'Actions'].map(header => (
                     <th key={header} className="px-3 py-3 text-left text-xs font-semibold text-gray-500">{header}</th>
                   ))}
                 </tr>
@@ -295,8 +243,6 @@ export default function ModelDetail() {
                   const fileCount = model.metrics?.file_count ?? 0;
                   const expected = model.metrics?.expected_file_count ?? 0;
                   const isBusy = busyId === model.id;
-                  const isReady = model.metrics?.validation_status === 'READY';
-                  const isSelected = normalizeStatus(model.status) === 'SELECTED';
                   return (
                     <tr
                       key={model.id}
@@ -304,22 +250,12 @@ export default function ModelDetail() {
                       className={`cursor-pointer border-b border-gray-50 transition hover:bg-gray-50 ${active?.id === model.id ? 'bg-blue-50/50' : ''}`}
                     >
                       <td className="px-3 py-3 font-mono text-xs font-semibold text-blue-700">{model.version}</td>
-                      <td className="px-3 py-3"><StatusBadge status={model.status} /></td>
                       <td className="px-3 py-3"><ValidationBadge model={model} /></td>
                       <td className="px-3 py-3 text-gray-600">{fileCount}/{expected}</td>
                       <td className="px-3 py-3 text-gray-600">{getArchitecture(model)}</td>
                       <td className="px-3 py-3 text-xs text-gray-400">{formatModelDateTime(model.created_at)}</td>
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-1.5">
-                          {!isSelected && (
-                            <button
-                              onClick={event => { event.stopPropagation(); runAction(model.id, 'select'); }}
-                              disabled={isBusy || !isReady}
-                              className="rounded-md border border-emerald-200 bg-white px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-40"
-                            >
-                              운영 지정
-                            </button>
-                          )}
                           <button
                             onClick={event => { event.stopPropagation(); setEditTarget(model); setEditName(model.model_name ?? ''); setEditVersion(model.version ?? ''); }}
                             disabled={isBusy}
@@ -327,15 +263,13 @@ export default function ModelDetail() {
                           >
                             수정
                           </button>
-                          {!isSelected && (
-                            <button
-                              onClick={event => { event.stopPropagation(); setDeleteTarget(model); }}
-                              disabled={isBusy}
-                              className="rounded-md border border-red-100 bg-white px-2 py-1 text-xs font-semibold text-red-500 transition hover:bg-red-50 disabled:opacity-50"
-                            >
-                              삭제
-                            </button>
-                          )}
+                          <button
+                            onClick={event => { event.stopPropagation(); setDeleteTarget(model); }}
+                            disabled={isBusy}
+                            className="rounded-md border border-red-100 bg-white px-2 py-1 text-xs font-semibold text-red-500 transition hover:bg-red-50 disabled:opacity-50"
+                          >
+                            삭제
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -350,7 +284,6 @@ export default function ModelDetail() {
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-bold text-gray-800">선택 버전 상세</p>
                 {active && <span className="font-mono text-xs font-semibold text-blue-700">{active.version}</span>}
-                {active && <StatusBadge status={active.status} />}
                 {active && <ValidationBadge model={active} />}
               </div>
             </div>
@@ -360,7 +293,7 @@ export default function ModelDetail() {
                 <Detail label="모델 경로" value={active.model_path ?? '-'} />
                 <Detail label="Runner" value={String(active.metrics?.runner_version ?? '-')} />
                 <Detail label="파일 패턴" value={String(active.metrics?.model_file_pattern ?? '-')} />
-                <Detail label="마지막 검증" value={active.metrics?.validated_at ?? '-'} />
+                <Detail label="마지막 검증" value={formatModelDateTimeFull(active.metrics?.validated_at)} />
                 <Detail label="누락 파일" value={(active.metrics?.missing_files ?? []).join(', ') || '없음'} />
               </div>
             ) : (

@@ -91,6 +91,7 @@ export interface Experiment {
   name: string;
   description: string | null;
   created_by: string | null;
+  gold_job_id: number | null;
   created_at: string | null;
 }
 
@@ -697,6 +698,19 @@ export async function createExperimentGroup(name: string, description?: string |
     method: 'POST',
     body: JSON.stringify({ name, description: description ?? null, created_by: getCurrentUsername() }),
   });
+}
+
+/** 대표 테스트케이스(금메달) 수동 지정 — 이후 CSI 더 높은 게 생겨도 자동으로 안 뺏김 */
+export async function setGoldJob(experimentId: number, jobId: number): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${experimentId}/gold`, {
+    method: 'POST',
+    body: JSON.stringify({ job_id: jobId }),
+  });
+}
+
+/** 수동 지정 해제 — CSI 최고점 기준 자동 산정으로 되돌림 */
+export async function clearGoldJob(experimentId: number): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${experimentId}/gold`, { method: 'DELETE' });
 }
 
 export async function createExperimentJob(body: ExperimentCreateRequest): Promise<ExperimentCreateResponse> {

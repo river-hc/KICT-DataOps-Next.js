@@ -7,7 +7,7 @@ import Layout from '@/lib/Layout';
 import {
   getExperiment, getTrainingJobsByExperiment, getModels, getTrainingResult, deleteTraining,
   createExperimentJob, getDataCollectionInfo, getAnswerDatasets, createAnswerDataset,
-  displayUsername, formatExecutionName,
+  displayUsername, formatExecutionName, setGoldJob, clearGoldJob,
   type TrainingJob, type AscFileInput, type ModelVersion, type DataCollectionDatasetGroup,
   type TrainingResult, type Experiment, type AnswerDataset,
 } from '@/lib/api';
@@ -886,14 +886,30 @@ export default function ExperimentDetailPage() {
     tcSummary[job.job_id] = parseMetrics(resultMap[job.job_id]?.metrics).summary;
   }
 
-  // 대표 테스트케이스 = 완료된 것 중 CSI가 가장 높은 job (자동 산정, 수동 선택 없음)
-  let goldJobId: number | null = null;
+  // 대표 테스트케이스 = 완료된 것 중 CSI가 가장 높은 job (자동 산정)
+  // 단, 사용자가 수동 지정(experiment.gold_job_id)했으면 그게 최우선 — CSI 더 높은 게 나와도 안 뺏김
+  let autoGoldJobId: number | null = null;
   let bestCsi = -Infinity;
   for (const job of tcJobs) {
     const csi = tcSummary[job.job_id]?.csi;
     if (csi == null) continue;
-    if (csi > bestCsi) { bestCsi = csi; goldJobId = job.job_id; }
+    if (csi > bestCsi) { bestCsi = csi; autoGoldJobId = job.job_id; }
   }
+  const goldJobId = experiment?.gold_job_id ?? autoGoldJobId;
+  const isManualGold = experiment?.gold_job_id != null;
+
+  const handleToggleGold = async (jobId: number) => {
+    if (!experiment) return;
+    try {
+      if (isManualGold && goldJobId === jobId) {
+        const updated = await clearGoldJob(experiment.id);
+        setExperiment(updated);
+      } else {
+        const updated = await setGoldJob(experiment.id, jobId);
+        setExperiment(updated);
+      }
+    } catch { /* noop */ }
+  };
 
   // 상태 필터 + 정렬 (MAE/RMSE는 낮을수록, CSI는 높을수록 좋은 테스트케이스)
   const visibleJobs = tcJobs
@@ -1241,15 +1257,25 @@ export default function ExperimentDetailPage() {
                       />
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        aria-label="대표 테스트케이스 (완료된 것 중 CSI 최고점, 자동 산정)"
-                        title="대표 테스트케이스 (CSI 최고점, 자동 산정)"
-                        className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
+                      <button
+                        type="button"
+                        onClick={() => handleToggleGold(job.job_id)}
+                        aria-label={
+                          goldJobId === job.job_id
+                            ? (isManualGold ? '대표 테스트케이스로 수동 고정됨 (클릭하면 자동 산정으로 되돌림)' : '대표 테스트케이스 (CSI 최고점, 자동 산정 — 클릭하면 수동 고정)')
+                            : '이 테스트케이스를 대표로 수동 지정'
+                        }
+                        title={
+                          goldJobId === job.job_id
+                            ? (isManualGold ? '수동 고정됨 — 클릭하면 자동 산정으로 되돌림' : 'CSI 최고점 (자동 산정) — 클릭하면 수동 고정')
+                            : '클릭하면 이 테스트케이스를 대표로 수동 지정'
+                        }
+                        className={`relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${
                           goldJobId === job.job_id
                             ? 'border-amber-300 bg-amber-50'
-                            : 'border-gray-200 bg-white'
+                            : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50'
                         }`}
                       >
                         {goldJobId === job.job_id ? (
@@ -1257,7 +1283,15 @@ export default function ExperimentDetailPage() {
                         ) : (
                           <span className="h-2.5 w-2.5 rounded-full border border-gray-300" aria-hidden="true" />
                         )}
-                      </span>
+                        {goldJobId === job.job_id && isManualGold && (
+                          <span
+                            className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-white text-[8px] leading-none shadow"
+                            aria-hidden="true"
+                          >
+                            📌
+                          </span>
+                        )}
+                      </button>
                       <span className="font-semibold text-gray-800 text-sm leading-tight">{executionName}</span>
                     </div>
                   </td>
