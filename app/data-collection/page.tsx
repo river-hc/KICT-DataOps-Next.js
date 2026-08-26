@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Layout from '@/lib/Layout';
 import {
-  collectAnswerData,
+  createDataCollectionJob,
   deleteTrainingDatasetGroups,
   downloadTrainingDatasetUrl,
   getDataCollectionInfo,
-  makeTrainingDataset,
+  getLatestDataCollectionJob,
   type DataCollectionDatasetGroup,
   type DataCollectionInfo,
+  type DataCollectionJob,
   type CollectAnswerDataResult,
   type DataCollectionPipelineResult,
   type DataCollectionScriptResult,
@@ -356,6 +357,9 @@ export default function DataCollectionPage() {
   const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>([]);
   const [deletingAsc, setDeletingAsc] = useState(false);
 
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appliedTerminalJobIdRef = useRef<number | null>(null);
+
   useEffect(() => {
     getDataCollectionInfo()
       .then(setInfo)
@@ -377,6 +381,62 @@ export default function DataCollectionPage() {
     setInfo(next);
   }
 
+  // 진행상황을 DB(job)에서 읽어와 반영 — 이 브라우저에서 시작한 작업이 아니어도,
+  // 메뉴를 이동했다가 돌아와도 항상 같은 결과가 보인다.
+  const applyJobToState = useCallback((job: DataCollectionJob | null) => {
+    if (!job) return;
+
+    const inputResult = job.result?.input ?? null;
+    const answerResult = job.result?.answer ?? null;
+    if (inputResult) setPipelineResult(inputResult);
+
+    if (job.status === 'QUEUED' || job.status === 'RUNNING') {
+      setState('RUNNING');
+      setAnswerState(job.stage === 'ANSWER_COLLECTING' ? 'RUNNING' : 'IDLE');
+      return;
+    }
+
+    if (job.status === 'FAILED' && !inputResult) {
+      setState('FAILED');
+      setError(job.error_message || '학습데이터 만들기에 실패했습니다.');
+    } else if (inputResult) {
+      setState(inputResult.status === 'FAILED' ? 'FAILED' : inputResult.file_count === 0 ? 'WARNING' : 'DONE');
+    }
+
+    if (answerResult) {
+      setAnswerResult(answerResult);
+      setAnswerState(answerResult.status === 'FAILED' ? 'FAILED' : 'DONE');
+    }
+
+    if (appliedTerminalJobIdRef.current !== job.id) {
+      appliedTerminalJobIdRef.current = job.id;
+      refreshInfo().catch(() => {});
+    }
+  }, []);
+
+  const pollLatestJob = useCallback(async () => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    try {
+      const job = await getLatestDataCollectionJob();
+      applyJobToState(job);
+      if (job && (job.status === 'QUEUED' || job.status === 'RUNNING')) {
+        pollTimerRef.current = setTimeout(pollLatestJob, 2000);
+      }
+    } catch {
+      pollTimerRef.current = setTimeout(pollLatestJob, 3000);
+    }
+  }, [applyJobToState]);
+
+  useEffect(() => {
+    pollLatestJob();
+    return () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
+  }, [pollLatestJob]);
+
   async function handleMakeTrainingDataset() {
     if (!datasetName.trim()) {
       setDatasetNameTouched(true);
@@ -395,38 +455,15 @@ export default function DataCollectionPage() {
     setState('RUNNING');
 
     try {
-      const result = await makeTrainingDataset({
+      await createDataCollectionJob({
         target_datetimes: inputTimes,
         interval_minutes: effectiveInterval,
-        frame_count: inputTimes.length,
         dataset_name: datasetName.trim(),
         created_by: getCurrentUsername(),
+        collect_answer_data: collectAnswerDataEnabled,
       });
-      setPipelineResult(result);
       setActiveTab('STATUS');
-      setState(result.status === 'FAILED' ? 'FAILED' : result.file_count === 0 ? 'WARNING' : 'DONE');
-      await refreshInfo();
-
-      // 입력이 정상적으로 만들어졌을 때만 이어서 정답데이터 수집 — 별도 요청이라 여기서 실패해도
-      // 이미 만든 입력 데이터는 그대로 남는다.
-      if (collectAnswerDataEnabled && result.status !== 'FAILED' && result.file_count > 0 && result.run_id) {
-        setAnswerState('RUNNING');
-        try {
-          const answer = await collectAnswerData({
-            run_id: result.run_id,
-            target_datetimes: inputTimes,
-            dataset_name: datasetName.trim(),
-          });
-          setAnswerResult(answer);
-          setAnswerState(answer.status === 'FAILED' ? 'FAILED' : 'DONE');
-        } catch (err) {
-          setAnswerState('FAILED');
-          setAnswerResult({
-            status: 'FAILED',
-            message: err instanceof Error ? err.message : '정답데이터 수집에 실패했습니다.',
-          });
-        }
-      }
+      pollLatestJob();
     } catch (err) {
       setState('FAILED');
       setError(err instanceof Error ? err.message : '학습데이터 만들기에 실패했습니다.');
@@ -559,12 +596,13 @@ export default function DataCollectionPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-gray-500">분 간격</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-500">
+                    분 간격 <span className="font-normal text-gray-400">(5분간격)</span>
+                  </label>
                   <input
                     type="number"
                     min={5}
                     step={5}
-                    placeholder="5"
                     value={intervalMinutesInput}
                     onChange={event => setIntervalMinutesInput(event.target.value)}
                     onBlur={() => {
@@ -572,7 +610,7 @@ export default function DataCollectionPage() {
                         setIntervalMinutesInput('5');
                       }
                     }}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition placeholder:text-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
               </div>

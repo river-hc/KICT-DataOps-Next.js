@@ -220,6 +220,23 @@ export interface CollectAnswerDataResult {
   answer_file_count?: number;
 }
 
+export interface DataCollectionJob {
+  id: number;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | string;
+  stage?: string | null;
+  progress: number;
+  dataset_name?: string | null;
+  created_by?: string | null;
+  error_message?: string | null;
+  result?: {
+    input?: DataCollectionPipelineResult;
+    answer?: CollectAnswerDataResult;
+  } | null;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
 export interface DataCollectionDatasetGroup {
   id: string;
   name: string;
@@ -295,6 +312,12 @@ export function displayUsername(value?: string | null): string {
 
 export function formatExecutionName(value?: string | null, runDatetime?: string | null): string {
   const source = (runDatetime || value || '').trim();
+  // 대시보드 등 일부 화면은 runDatetime 없이 이미 이 함수로 만들어진 experiment_name만 다시 넘긴다 —
+  // "YYYY-MM-DD 강우 실험(HH시 MM분)" 형태면 시:분 뒤에 한글이 와서 재파싱 시 00시 00분으로 깨지므로
+  // 그대로 돌려준다.
+  if (/^\d{4}-\d{2}-\d{2} 강우 실험\(\d{1,2}시 \d{1,2}분\)$/.test(source)) {
+    return source;
+  }
   const iso = source.match(/(\d{4})-(\d{2})-(\d{2})[T\s]?(\d{2})?:?(\d{2})?/);
   const compact = source.match(/(20\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
   const match = iso ?? compact;
@@ -375,6 +398,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
       : (detail ?? `${res.status} ${res.statusText}`);
     throw new Error(message);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json();
 }
 
@@ -450,6 +476,28 @@ export async function collectAnswerData(body: {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * 입력 4프레임(+선택 시 정답데이터) 수집을 백그라운드에 등록만 하고 바로 반환한다.
+ * 진행상황/결과는 getLatestDataCollectionJob으로 조회 — 요청-응답으로 오래 붙잡지 않아서
+ * 프록시 타임아웃이 없고, 다른 사용자/새로고침에서도 동일하게 이어서 보인다.
+ */
+export async function createDataCollectionJob(body: {
+  target_datetimes: string[];
+  interval_minutes: number;
+  dataset_name?: string | null;
+  created_by?: string | null;
+  collect_answer_data: boolean;
+}): Promise<DataCollectionJob> {
+  return request<DataCollectionJob>('/data-collection/jobs', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getLatestDataCollectionJob(): Promise<DataCollectionJob | null> {
+  return request<DataCollectionJob | null>('/data-collection/jobs/latest');
 }
 
 export function downloadTrainingDatasetUrl(groups: string[] = []): string {
