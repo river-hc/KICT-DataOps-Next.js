@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { queryAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
+import { queryAssistant, queryLlmAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
 
 // 신경망/노드-엣지 느낌의 장식용 배경 (좌표 고정 — 서버/클라이언트 렌더 불일치 방지)
 const NODES: [number, number][] = [
@@ -100,6 +100,7 @@ export default function AiAssistantWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [useLlm, setUseLlm] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export default function AiAssistantWidget() {
     setInput('');
     setSending(true);
     try {
-      const result = await queryAssistant(text);
+      const result = useLlm ? await queryLlmAssistant(text) : await queryAssistant(text);
       setMessages(prev => [...prev, { role: 'assistant', text: result.message, results: result.results }]);
     } catch (err) {
       setMessages(prev => [
@@ -158,6 +159,23 @@ export default function AiAssistantWidget() {
                 <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
                   <path d="M2 2l12 12M14 2L2 14" />
                 </svg>
+              </button>
+            </div>
+            <div className="relative mt-3 flex items-center gap-1 rounded-lg bg-white/10 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setUseLlm(false)}
+                className={`flex-1 rounded-md py-1 transition-colors ${!useLlm ? 'bg-white text-indigo-700' : 'text-white/70 hover:text-white'}`}
+              >
+                빠른 검색
+              </button>
+              <button
+                type="button"
+                onClick={() => setUseLlm(true)}
+                className={`flex-1 rounded-md py-1 transition-colors ${useLlm ? 'bg-white text-indigo-700' : 'text-white/70 hover:text-white'}`}
+                title="사내망 로컬 LLM(Gemma 4)이 답변합니다 — 응답이 느릴 수 있어요"
+              >
+                AI 모드
               </button>
             </div>
           </div>

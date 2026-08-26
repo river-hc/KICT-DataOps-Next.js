@@ -553,6 +553,15 @@ export async function queryAssistant(message: string): Promise<AssistantQueryRes
   });
 }
 
+// 사내망 안 로컬 LLM(Gemma 4 E4B, Ollama)이 search_test_cases 도구를 호출해 답한다.
+// /assistant/query(규칙기반)와 별도 경로 — 이쪽이 실패해도 규칙기반 검색은 그대로 동작한다.
+export async function queryLlmAssistant(message: string): Promise<AssistantQueryResult> {
+  return request<AssistantQueryResult>('/assistant/llm-query', {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
 // ─── Training ─────────────────────────────────────────────────────────────────
 
 export async function getTrainings(): Promise<TrainingJob[]> {
