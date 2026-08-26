@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import Layout from '@/lib/Layout';
 import {
+  collectAnswerData,
   deleteTrainingDatasetGroups,
   downloadTrainingDatasetUrl,
   getDataCollectionInfo,
   makeTrainingDataset,
   type DataCollectionDatasetGroup,
   type DataCollectionInfo,
+  type CollectAnswerDataResult,
   type DataCollectionPipelineResult,
   type DataCollectionScriptResult,
 } from '@/lib/api';
@@ -34,16 +36,41 @@ function StatusBadge({ state }: { state: StepState }) {
   return <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
 }
 
+function AnswerDataFeedback({ state, result }: { state: StepState; result: CollectAnswerDataResult | null }) {
+  if (state === 'IDLE') return null;
+  if (state === 'RUNNING') {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-xs font-medium text-emerald-700">
+        <span className="h-3 w-3 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+        정답데이터 수집 중...
+      </div>
+    );
+  }
+  if (!result) return null;
+  if (state === 'FAILED') {
+    return <p className="mt-2 text-xs text-red-600">정답데이터 수집 실패: {result.message}</p>;
+  }
+  return (
+    <p className="mt-2 text-xs font-medium text-emerald-700">
+      정답데이터셋 등록됨: {result.answer_dataset_name} ({result.answer_file_count}개 파일)
+    </p>
+  );
+}
+
 function ExecutionFeedback({
   state,
   result,
   error,
   expectedCount,
+  answerState,
+  answerResult,
 }: {
   state: StepState;
   result: DataCollectionPipelineResult | null;
   error: string | null;
   expectedCount: number;
+  answerState: StepState;
+  answerResult: CollectAnswerDataResult | null;
 }) {
   if (state === 'RUNNING') {
     return (
@@ -99,6 +126,7 @@ function ExecutionFeedback({
           {message}
         </p>
       )}
+      {!isFailed && !isEmpty && <AnswerDataFeedback state={answerState} result={answerResult} />}
     </div>
   );
 }
@@ -315,9 +343,13 @@ export default function DataCollectionPage() {
   const [datasetName, setDatasetName] = useState('');
   const [datasetNameTouched, setDatasetNameTouched] = useState(false);
   const [targetInput, setTargetInput] = useState('2022-08-09T10:20');
-  const [intervalMinutes, setIntervalMinutes] = useState(5);
+  // 빈 입력을 허용하려고 문자열로 관리 — 실제 계산엔 effectiveInterval(기본값 5)을 쓴다.
+  const [intervalMinutesInput, setIntervalMinutesInput] = useState('');
+  const effectiveInterval = Math.max(5, Number(intervalMinutesInput) || 5);
   const [inputTimes, setInputTimes] = useState<string[]>(generateInputTimes('2022-08-09T10:20', 5));
-  const [collectAnswerData, setCollectAnswerData] = useState(true);
+  const [collectAnswerDataEnabled, setCollectAnswerDataEnabled] = useState(true);
+  const [answerState, setAnswerState] = useState<StepState>('IDLE');
+  const [answerResult, setAnswerResult] = useState<CollectAnswerDataResult | null>(null);
   const [pipelineResult, setPipelineResult] = useState<DataCollectionPipelineResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -331,8 +363,8 @@ export default function DataCollectionPage() {
   }, []);
 
   useEffect(() => {
-    setInputTimes(generateInputTimes(targetInput, intervalMinutes));
-  }, [targetInput, intervalMinutes]);
+    setInputTimes(generateInputTimes(targetInput, effectiveInterval));
+  }, [targetInput, effectiveInterval]);
 
   useEffect(() => {
     const groupIds = new Set((info?.training_dataset_groups ?? []).map(group => group.id));
@@ -358,21 +390,43 @@ export default function DataCollectionPage() {
 
     setError(null);
     setPipelineResult(null);
+    setAnswerResult(null);
+    setAnswerState('IDLE');
     setState('RUNNING');
 
     try {
       const result = await makeTrainingDataset({
         target_datetimes: inputTimes,
-        interval_minutes: intervalMinutes,
+        interval_minutes: effectiveInterval,
         frame_count: inputTimes.length,
         dataset_name: datasetName.trim(),
         created_by: getCurrentUsername(),
-        collect_answer_data: collectAnswerData,
       });
       setPipelineResult(result);
       setActiveTab('STATUS');
       setState(result.status === 'FAILED' ? 'FAILED' : result.file_count === 0 ? 'WARNING' : 'DONE');
       await refreshInfo();
+
+      // 입력이 정상적으로 만들어졌을 때만 이어서 정답데이터 수집 — 별도 요청이라 여기서 실패해도
+      // 이미 만든 입력 데이터는 그대로 남는다.
+      if (collectAnswerDataEnabled && result.status !== 'FAILED' && result.file_count > 0 && result.run_id) {
+        setAnswerState('RUNNING');
+        try {
+          const answer = await collectAnswerData({
+            run_id: result.run_id,
+            target_datetimes: inputTimes,
+            dataset_name: datasetName.trim(),
+          });
+          setAnswerResult(answer);
+          setAnswerState(answer.status === 'FAILED' ? 'FAILED' : 'DONE');
+        } catch (err) {
+          setAnswerState('FAILED');
+          setAnswerResult({
+            status: 'FAILED',
+            message: err instanceof Error ? err.message : '정답데이터 수집에 실패했습니다.',
+          });
+        }
+      }
     } catch (err) {
       setState('FAILED');
       setError(err instanceof Error ? err.message : '학습데이터 만들기에 실패했습니다.');
@@ -444,7 +498,7 @@ export default function DataCollectionPage() {
           <div className="flex items-center gap-2">
             {[
               { key: 'STATUS' as ActiveTab, label: '현황' },
-              { key: 'MANAGEMENT' as ActiveTab, label: '학습관리' },
+              { key: 'MANAGEMENT' as ActiveTab, label: '데이터 관리' },
             ].map(tab => (
               <button
                 key={tab.key}
@@ -510,9 +564,15 @@ export default function DataCollectionPage() {
                     type="number"
                     min={5}
                     step={5}
-                    value={intervalMinutes}
-                    onChange={event => setIntervalMinutes(Math.max(5, Number(event.target.value) || 5))}
-                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    placeholder="5"
+                    value={intervalMinutesInput}
+                    onChange={event => setIntervalMinutesInput(event.target.value)}
+                    onBlur={() => {
+                      if (intervalMinutesInput && Number(intervalMinutesInput) < 5) {
+                        setIntervalMinutesInput('5');
+                      }
+                    }}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition placeholder:text-gray-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
               </div>
@@ -541,15 +601,15 @@ export default function DataCollectionPage() {
                   </div>
                 )}
                 <p className="mt-2 text-xs text-gray-400">
-                  기준 시간부터 {intervalMinutes}분 간격으로 계산한 4개 입력 파일을 받아 ASC로 변환합니다.
+                  기준 시간부터 {effectiveInterval}분 간격으로 계산한 4개 입력 파일을 받아 ASC로 변환합니다.
                 </p>
               </div>
 
               <label className="mt-4 flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
                 <input
                   type="checkbox"
-                  checked={collectAnswerData}
-                  onChange={event => setCollectAnswerData(event.target.checked)}
+                  checked={collectAnswerDataEnabled}
+                  onChange={event => setCollectAnswerDataEnabled(event.target.checked)}
                   className="mt-0.5 accent-blue-600"
                 />
                 <span>
@@ -587,7 +647,14 @@ export default function DataCollectionPage() {
                 DATA_CONVERTER_COMMAND가 설정되면 버튼이 활성화됩니다.
               </p>
             )}
-            <ExecutionFeedback state={state} result={pipelineResult} error={error} expectedCount={4} />
+            <ExecutionFeedback
+              state={state}
+              result={pipelineResult}
+              error={error}
+              expectedCount={4}
+              answerState={answerState}
+              answerResult={answerResult}
+            />
           </div>
 
           <div className="flex flex-col">

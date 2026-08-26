@@ -6,9 +6,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
-import { getTraining, getTrainingResult, getTrainingLogs, getExperiment, displayUsername, formatExecutionName, type TrainingJob, type TrainingResult, type Experiment } from '@/lib/api';
+import {
+  getTraining, getTrainingResult, getTrainingLogs, getExperiment, displayUsername, formatExecutionName,
+  getComments, createComment, updateComment, deleteComment,
+  type TrainingJob, type TrainingResult, type Experiment, type Comment,
+} from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
 import { loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
+import { getCurrentUsername } from '@/lib/account';
 import { parseMetrics } from '@/lib/metrics';
 import { SkeletonBlock, SkeletonCard } from '@/lib/Skeleton';
 
@@ -67,6 +72,137 @@ function LogPanel({ logs, className = '' }: { logs: string[]; className?: string
   );
 }
 
+function fmtCommentTime(iso: string): string {
+  return new Date(iso).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function CommentSection({ jobId }: { jobId: number }) {
+  const currentUser = getCurrentUsername();
+  const [comments,    setComments]    = useState<Comment[]>([]);
+  const [loading,      setLoading]     = useState(true);
+  const [newContent,   setNewContent]  = useState('');
+  const [submitting,   setSubmitting]  = useState(false);
+  const [editingId,    setEditingId]   = useState<number | null>(null);
+  const [editingText,  setEditingText] = useState('');
+  const [error,        setError]       = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    getComments(jobId).then(setComments).catch(() => setComments([])).finally(() => setLoading(false));
+  }, [jobId]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const handleSubmit = async () => {
+    const content = newContent.trim();
+    if (!content || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createComment(jobId, currentUser, content);
+      setNewContent('');
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '댓글 등록에 실패했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startEdit = (comment: Comment) => {
+    setEditingId(comment.id);
+    setEditingText(comment.content);
+  };
+
+  const handleUpdate = async (commentId: number) => {
+    const content = editingText.trim();
+    if (!content) return;
+    try {
+      await updateComment(commentId, currentUser, content);
+      setEditingId(null);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '댓글 수정에 실패했습니다.');
+    }
+  };
+
+  const handleDelete = async (commentId: number) => {
+    if (!window.confirm('댓글을 삭제할까요?')) return;
+    try {
+      await deleteComment(commentId, currentUser);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '댓글 삭제에 실패했습니다.');
+    }
+  };
+
+  return (
+    <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">댓글</p>
+
+      {loading ? (
+        <p className="text-xs text-gray-300">불러오는 중...</p>
+      ) : comments.length === 0 ? (
+        <p className="text-xs text-gray-300 mb-3">아직 댓글이 없습니다.</p>
+      ) : (
+        <div className="space-y-3 mb-3">
+          {comments.map(comment => (
+            <div key={comment.id} className="border-b border-gray-50 pb-2.5 last:border-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-semibold text-gray-800">{displayUsername(comment.author)}</span>
+                  <span className="text-[11px] text-gray-400">{fmtCommentTime(comment.created_at)}</span>
+                </div>
+                {comment.author === currentUser && editingId !== comment.id && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => startEdit(comment)} className="text-[11px] text-blue-600 hover:underline">수정</button>
+                    <button onClick={() => handleDelete(comment.id)} className="text-[11px] text-red-500 hover:underline">삭제</button>
+                  </div>
+                )}
+              </div>
+              {editingId === comment.id ? (
+                <div className="mt-1.5 flex items-start gap-2">
+                  <textarea
+                    value={editingText}
+                    onChange={e => setEditingText(e.target.value)}
+                    rows={2}
+                    className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    autoFocus
+                  />
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <button onClick={() => handleUpdate(comment.id)} className="text-[11px] font-semibold text-blue-600 hover:underline">저장</button>
+                    <button onClick={() => setEditingId(null)} className="text-[11px] text-gray-400 hover:underline">취소</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-gray-700 whitespace-pre-wrap leading-5">{comment.content}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="mb-2 text-[11px] text-red-600">{error}</p>}
+
+      <div className="flex items-start gap-2">
+        <textarea
+          value={newContent}
+          onChange={e => setNewContent(e.target.value)}
+          placeholder="피드백을 남겨보세요"
+          rows={2}
+          className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !newContent.trim()}
+          className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40"
+        >
+          등록
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── 메인 ────────────────────────────────────────────────────────────────────
 
 export default function ExperimentResultDetail() {
@@ -92,8 +228,21 @@ export default function ExperimentResultDetail() {
     if (jobId == null) return;
     const id = jobId;
     setMemo(loadTcMemo(id));
+
+    // getTraining이 한 번 실패했다고 바로 "찾을 수 없음"으로 보여주면, 백엔드 재시작 같은
+    // 일시적인 순간에 걸렸을 때도 진짜 삭제된 것처럼 보여서 재시도부터 해본다.
+    const fetchJobWithRetry = async (attempt = 0): Promise<TrainingJob | null> => {
+      try {
+        return await getTraining(id);
+      } catch {
+        if (attempt >= 2) return null;
+        await new Promise(resolve => setTimeout(resolve, 800));
+        return fetchJobWithRetry(attempt + 1);
+      }
+    };
+
     Promise.all([
-      getTraining(id).catch(() => null),
+      fetchJobWithRetry(),
       getTrainingResult(id).catch(() => null),
       getTrainingLogs(id).catch(() => null),
     ]).then(([j, d, l]) => {
@@ -309,20 +458,21 @@ export default function ExperimentResultDetail() {
                 </div>
               </div>
               <div className="flex items-center gap-2 mb-2">
-                <button onClick={goPrev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
-                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M11 4L5 8l6 4V4z"/></svg>
+                <button onClick={goPrev} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition" title="이전 프레임">
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M14 4L9 8l5 4V4z"/><path d="M8 4L3 8l5 4V4z"/></svg>
                 </button>
                 <button
                   onClick={() => setIsPlaying(p => !p)}
                   className={`w-8 h-8 flex items-center justify-center rounded-lg transition ${isPlaying ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  title={isPlaying ? '일시정지' : '재생'}
                 >
                   {isPlaying
                     ? <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><rect x="4" y="3" width="3" height="10" rx="0.5"/><rect x="9" y="3" width="3" height="10" rx="0.5"/></svg>
                     : <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
                   }
                 </button>
-                <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
-                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M5 4l6 4-6 4V4z"/></svg>
+                <button onClick={goNext} className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition" title="다음 프레임">
+                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="currentColor"><path d="M2 4l5 4-5 4V4z"/><path d="M8 4l5 4-5 4V4z"/></svg>
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 mb-3">
@@ -412,6 +562,9 @@ export default function ExperimentResultDetail() {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
           <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
         </div>
+
+        {/* (3행) 댓글 */}
+        {jobId != null && <CommentSection jobId={jobId} />}
       </div>
         </>
       )}

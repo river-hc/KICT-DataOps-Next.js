@@ -210,6 +210,11 @@ export interface DataCollectionPipelineResult {
   files: string[];
   started_at: string;
   finished_at: string;
+}
+
+export interface CollectAnswerDataResult {
+  status: 'COMPLETED' | 'FAILED' | string;
+  message: string;
   answer_dataset_id?: number | null;
   answer_dataset_name?: string | null;
   answer_file_count?: number;
@@ -428,9 +433,20 @@ export async function makeTrainingDataset(body: {
   frame_count: number;
   dataset_name?: string | null;
   created_by?: string | null;
-  collect_answer_data?: boolean;
 }): Promise<DataCollectionPipelineResult> {
   return request<DataCollectionPipelineResult>('/data-collection/make-training-dataset', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 입력 수집이 끝난 뒤 이어서 호출 — 한 요청에 다 묶으면 오래 걸려 타임아웃에 걸리기 쉬워서 분리함 */
+export async function collectAnswerData(body: {
+  run_id: string;
+  target_datetimes: string[];
+  dataset_name?: string | null;
+}): Promise<CollectAnswerDataResult> {
+  return request<CollectAnswerDataResult>('/data-collection/collect-answer-data', {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -595,6 +611,41 @@ export async function getTrainingLogs(jobId: number): Promise<TrainingLog> {
 export async function getTrainingResult(jobId: number): Promise<TrainingResult> {
   if (isDemoMode()) return demoTrainingResult(jobId);
   return request<TrainingResult>(`/trainings/${jobId}/result`);
+}
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
+
+export interface Comment {
+  id: number;
+  job_id: number;
+  author: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getComments(jobId: number): Promise<Comment[]> {
+  return request<Comment[]>(`/trainings/${jobId}/comments`);
+}
+
+export async function createComment(jobId: number, author: string, content: string): Promise<Comment> {
+  return request<Comment>(`/trainings/${jobId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ author, content }),
+  });
+}
+
+export async function updateComment(commentId: number, author: string, content: string): Promise<Comment> {
+  return request<Comment>(`/comments/${commentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ author, content }),
+  });
+}
+
+export async function deleteComment(commentId: number, author: string): Promise<void> {
+  await request<void>(`/comments/${commentId}?author=${encodeURIComponent(author)}`, {
+    method: 'DELETE',
+  });
 }
 
 // ─── Experiments ──────────────────────────────────────────────────────────────

@@ -1297,7 +1297,7 @@ export default function ExperimentDetailPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs font-mono whitespace-nowrap">{displayRequester}</td>
                   <td className="px-4 py-3"><StatusBadge status={job.status} /></td>
-                  <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{job.created_at?.slice(0,10) ?? '-'}</td>
+                  <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtDt(job.created_at)}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDur(job.started_at, job.finished_at)}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs font-semibold ${/v3/i.test(modelVer) ? 'text-emerald-600' : 'text-amber-600'}`}>
