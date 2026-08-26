@@ -81,7 +81,7 @@ export default function LoginPage() {
               priority
             />
           </div>
-          <p className="text-sm mt-1" style={{ color: 'var(--login-muted)' }}>
+          <p className="text-sm mt-1" style={{ color: 'var(--login-header-muted)' }}>
             AI 모델 학습 및 결과 관리
           </p>
         </div>

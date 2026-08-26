@@ -16,12 +16,6 @@ interface ModelGroup {
   latest: ModelVersion | null;
 }
 
-function statusLabel(status: string | null | undefined): string {
-  const value = (status ?? '').toUpperCase();
-  if (value === 'SELECTED') return '사용 중';
-  return '대기';
-}
-
 function validationLabel(model: ModelVersion | null): string {
   const status = model?.metrics?.validation_status;
   if (status === 'READY') return '실행 가능';
@@ -82,18 +76,17 @@ export default function Models() {
   }, [refresh]);
 
   const groups = useMemo(() => buildGroups(models), [models]);
-  const selected = models.find(model => (model.status ?? '').toUpperCase() === 'SELECTED') ?? null;
   const readyCount = models.filter(model => model.metrics?.validation_status === 'READY').length;
 
   if (loading) {
     return (
       <Layout>
         <div className="space-y-4">
-          <SkeletonStatCards count={3} />
+          <SkeletonStatCards count={2} />
           <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
             <table className="w-full min-w-[760px] text-sm">
               <tbody>
-                <SkeletonTableRows rows={5} cols={6} />
+                <SkeletonTableRows rows={5} cols={5} />
               </tbody>
             </table>
           </div>
@@ -130,7 +123,7 @@ export default function Models() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
             <p className="text-xs font-medium text-gray-500">등록 모델</p>
             <p className="mt-1 text-2xl font-bold text-gray-950">{models.length}</p>
@@ -138,10 +131,6 @@ export default function Models() {
           <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
             <p className="text-xs font-medium text-gray-500">실행 가능</p>
             <p className="mt-1 text-2xl font-bold text-gray-950">{readyCount}</p>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-            <p className="text-xs font-medium text-gray-500">운영 모델</p>
-            <p className="mt-1 truncate text-lg font-bold text-gray-950">{selected ? `${selected.model_name} ${selected.version}` : '지정 없음'}</p>
           </div>
         </div>
 
@@ -185,7 +174,7 @@ export default function Models() {
             <table className="w-full min-w-[760px] text-sm">
               <thead className="border-b border-gray-100 bg-gray-50">
                 <tr>
-                  {['모델', '운영 버전', '상태', '파일', '버전 수', '최근 갱신'].map(header => (
+                  {['모델', '상태', '파일', '버전 수', '최근 갱신'].map(header => (
                     <th key={header} className="px-4 py-3 text-left text-xs font-semibold text-gray-500">{header}</th>
                   ))}
                 </tr>
@@ -205,7 +194,6 @@ export default function Models() {
                         <div className="font-semibold text-gray-950">{group.name}</div>
                         <div className="mt-0.5 text-xs text-gray-400">{display?.model_path ?? '-'}</div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-700">{group.selected?.version ?? '-'}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${validationClass(display)}`}>
                           {validationLabel(display)}

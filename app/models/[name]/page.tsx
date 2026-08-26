@@ -153,7 +153,7 @@ export default function ModelDetail() {
 
   const titleActions = (
     <button
-      onClick={() => router.push('/trainings')}
+      onClick={() => router.push('/experiments')}
       className="rounded-lg bg-gray-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
     >
       새 테스트케이스 만들기

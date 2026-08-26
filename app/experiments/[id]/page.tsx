@@ -1257,11 +1257,11 @@ export default function ExperimentDetailPage() {
                       />
                     )}
                   </td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-0">
                       <button
                         type="button"
-                        onClick={() => handleToggleGold(job.job_id)}
+                        onClick={e => { e.stopPropagation(); handleToggleGold(job.job_id); }}
                         aria-label={
                           goldJobId === job.job_id
                             ? (isManualGold ? '대표 테스트케이스로 수동 고정됨 (클릭하면 자동 산정으로 되돌림)' : '대표 테스트케이스 (CSI 최고점, 자동 산정 — 클릭하면 수동 고정)')
