@@ -660,6 +660,16 @@ export async function deleteTraining(jobId: number): Promise<void> {
   return request<void>(`/trainings/${jobId}`, { method: 'DELETE' });
 }
 
+export async function updateTraining(
+  jobId: number,
+  body: { experiment_name?: string; experiment_memo?: string },
+): Promise<TrainingJob> {
+  return request<TrainingJob>(`/trainings/${jobId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getTrainingLogs(jobId: number): Promise<TrainingLog> {
   if (isDemoMode()) return demoTrainingLogs(jobId);
   return request<TrainingLog>(`/trainings/${jobId}/logs`);

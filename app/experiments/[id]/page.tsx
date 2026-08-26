@@ -12,7 +12,6 @@ import {
   type TrainingResult, type Experiment, type AnswerDataset,
 } from '@/lib/api';
 import {
-  saveTcMemo,
   loadTcModelMeta, saveTcModelMeta,
 } from '@/lib/experimentStore';
 import { getCurrentUsername } from '@/lib/account';
@@ -1038,9 +1037,9 @@ export default function ExperimentDetailPage() {
 
     const result = await createExperimentJob(payload);
 
-    // 메모/모델메타는 아직 클라이언트에 보관 — 백엔드가 experiment_memo를 응답하지 않음 (request.md 항목 9B)
+    // 모델메타는 아직 클라이언트에 보관 — 백엔드 mode 응답 보정용. 메모는 이제 백엔드가
+    // experiment_memo를 저장/응답하므로(결과 조회 API) 따로 localStorage에 안 남긴다.
     if (result?.job_id) {
-      if (memo) saveTcMemo(result.job_id, memo);
       saveTcModelMeta(result.job_id, { modelVersion, architecture: modelMode, requester });
     }
     fetchJobs();

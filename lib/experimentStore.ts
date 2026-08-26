@@ -12,7 +12,6 @@ export interface ClientExperiment {
 
 const CLIENT_EXP_KEY = 'kict_client_experiments';
 const EXP_TC_MAP_KEY = 'kict_exp_tc_map';
-const TC_MEMO_KEY    = 'kict_tc_memo';
 const TC_MODEL_KEY   = 'kict_tc_model_meta';
 
 export interface TcModelMeta {
@@ -87,24 +86,6 @@ export function removeTcFromExpMap(expId: number, jobId: number): void {
     map[expId] = existing.filter(id => id !== jobId);
     localStorage.setItem(EXP_TC_MAP_KEY, JSON.stringify(map));
   }
-}
-
-// ─── TC 메모 (백엔드가 experiment_memo를 응답하지 않아 클라이언트에 보관) ──────
-
-export function saveTcMemo(jobId: number, memo: string): void {
-  if (typeof window === 'undefined' || !memo) return;
-  let store: Record<number, string> = {};
-  try { store = JSON.parse(localStorage.getItem(TC_MEMO_KEY) ?? '{}'); } catch { /* noop */ }
-  store[jobId] = memo;
-  localStorage.setItem(TC_MEMO_KEY, JSON.stringify(store));
-}
-
-export function loadTcMemo(jobId: number): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const store: Record<number, string> = JSON.parse(localStorage.getItem(TC_MEMO_KEY) ?? '{}');
-    return store[jobId] ?? null;
-  } catch { return null; }
 }
 
 // ─── TC 모델 메타 (백엔드 mode 응답 보정용) ─────────────────────────────────

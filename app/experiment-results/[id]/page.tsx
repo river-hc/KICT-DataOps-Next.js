@@ -8,11 +8,11 @@ import Layout from '@/lib/Layout';
 import AscViewer, { COLORBAR } from '@/lib/AscViewer';
 import {
   getTraining, getTrainingResult, getTrainingLogs, getExperiment, displayUsername, formatExecutionName,
-  getComments, createComment, updateComment, deleteComment,
+  getComments, createComment, updateComment, deleteComment, updateTraining,
   type TrainingJob, type TrainingResult, type Experiment, type Comment,
 } from '@/lib/api';
 import { fmtDateTime, fmtDuration } from '@/lib/mockData';
-import { loadTcMemo, loadTcModelMeta } from '@/lib/experimentStore';
+import { loadTcModelMeta } from '@/lib/experimentStore';
 import { getCurrentUsername } from '@/lib/account';
 import { parseMetrics } from '@/lib/metrics';
 import { SkeletonBlock, SkeletonCard } from '@/lib/Skeleton';
@@ -216,8 +216,13 @@ export default function ExperimentResultDetail() {
   const [loading,      setLoading]      = useState(true);
   const [parentExpId,  setParentExpId]  = useState<number | null>(null);
   const [parentExperiment, setParentExperiment] = useState<Experiment | null>(null);
-  // 메모는 백엔드가 응답하지 않으므로 클라이언트 localStorage에서 직접 로드 (detail과 독립)
   const [memo,         setMemo]         = useState<string | null>(null);
+  const [editingMemo,  setEditingMemo]  = useState(false);
+  const [memoDraft,    setMemoDraft]    = useState('');
+  const [savingMemo,   setSavingMemo]   = useState(false);
+  const [editingName,  setEditingName]  = useState(false);
+  const [nameDraft,    setNameDraft]    = useState('');
+  const [savingName,   setSavingName]   = useState(false);
 
   // 재생 상태 (AscViewer controlled mode)
   const [frameIdx,   setFrameIdx]   = useState(0);
@@ -227,7 +232,6 @@ export default function ExperimentResultDetail() {
   useEffect(() => {
     if (jobId == null) return;
     const id = jobId;
-    setMemo(loadTcMemo(id));
 
     // getTraining이 한 번 실패했다고 바로 "찾을 수 없음"으로 보여주면, 백엔드 재시작 같은
     // 일시적인 순간에 걸렸을 때도 진짜 삭제된 것처럼 보여서 재시도부터 해본다.
@@ -248,6 +252,7 @@ export default function ExperimentResultDetail() {
     ]).then(([j, d, l]) => {
       setJob(j);
       setDetail(d);
+      setMemo(d?.params.experiment_memo ?? null);
       setLogs(l?.logs ?? []);
       setLoading(false);
       setParentExpId(j?.experiment_id ?? null);
@@ -273,6 +278,34 @@ export default function ExperimentResultDetail() {
     setIsPlaying(false);
     setFrameIdx(i => (i + 1) % steps.length);
   }, [steps.length]);
+
+  async function handleSaveMemo() {
+    if (jobId == null) return;
+    setSavingMemo(true);
+    try {
+      await updateTraining(jobId, { experiment_memo: memoDraft });
+      setMemo(memoDraft);
+      setEditingMemo(false);
+    } catch {
+      /* noop — 저장 실패 시 편집 상태 유지, 사용자가 다시 시도 */
+    } finally {
+      setSavingMemo(false);
+    }
+  }
+
+  async function handleSaveName() {
+    if (jobId == null || !nameDraft.trim()) return;
+    setSavingName(true);
+    try {
+      const updated = await updateTraining(jobId, { experiment_name: nameDraft.trim() });
+      setJob(prev => (prev ? { ...prev, experiment_name: updated.experiment_name } : prev));
+      setEditingName(false);
+    } catch {
+      /* noop */
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   if (jobId == null || (!loading && !job)) {
     return (
@@ -325,7 +358,12 @@ export default function ExperimentResultDetail() {
   const hasMetricValues = pm.summary.mae != null || pm.summary.rmse != null || pm.summary.csi != null;
   const ascUrls        = detail?.asc_urls && Object.keys(detail.asc_urls).length > 0 ? detail.asc_urls : undefined;
 
-  const executionName = formatExecutionName(job?.experiment_name, detail?.params.run_datetime);
+  // job.experiment_name은 생성 시점에 이미 표시용으로 완성된 문자열이고(자동 생성이든 사용자가
+  // 직접 수정했든) 그대로 쓴다. run_datetime으로 다시 포맷하는 건 이름이 아예 없는 예전 데이터의
+  // 폴백일 때만 — 아니면 사용자가 고친 이름이 여기서 run_datetime 기준으로 다시 덮어써진다.
+  const executionName = job?.experiment_name?.trim()
+    ? job.experiment_name
+    : formatExecutionName(job?.experiment_name, detail?.params.run_datetime);
   const resultStatus = (job?.status ?? 'COMPLETED').toUpperCase();
   const isFailedResult = resultStatus === 'FAILED';
   const failureMessage = detail?.error_message || job?.error_message;
@@ -374,7 +412,41 @@ export default function ExperimentResultDetail() {
               </svg>
             </button>
             */}
-            <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{executionName}</h1>
+            {editingName ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <input
+                  type="text"
+                  value={nameDraft}
+                  onChange={e => setNameDraft(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2.5 py-1 text-lg font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+                <button
+                  onClick={handleSaveName}
+                  disabled={savingName || !nameDraft.trim()}
+                  className="flex-shrink-0 text-xs font-semibold text-blue-600 hover:underline disabled:opacity-40"
+                >
+                  저장
+                </button>
+                <button onClick={() => setEditingName(false)} className="flex-shrink-0 text-xs text-gray-400 hover:underline">
+                  취소
+                </button>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-xl font-bold text-gray-900 min-w-0 truncate">{executionName}</h1>
+                <button
+                  onClick={() => { setNameDraft(job?.experiment_name ?? ''); setEditingName(true); }}
+                  className="flex-shrink-0 text-gray-300 hover:text-gray-600"
+                  aria-label="이름 수정"
+                  title="이름 수정"
+                >
+                  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13.5 3.5l3 3L6 17l-4 1 1-4L13.5 3.5z" />
+                  </svg>
+                </button>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
@@ -559,8 +631,34 @@ export default function ExperimentResultDetail() {
 
         {/* (2행) 메모 */}
         <div className="col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-3 h-full min-h-0 overflow-y-auto">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">메모</p>
-          <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo}</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">메모</p>
+            {!editingMemo && (
+              <button
+                onClick={() => { setMemoDraft(memo ?? ''); setEditingMemo(true); }}
+                className="text-[11px] text-blue-600 hover:underline"
+              >
+                수정
+              </button>
+            )}
+          </div>
+          {editingMemo ? (
+            <div className="flex items-start gap-2">
+              <textarea
+                value={memoDraft}
+                onChange={e => setMemoDraft(e.target.value)}
+                rows={3}
+                className="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                autoFocus
+              />
+              <div className="flex flex-shrink-0 flex-col gap-1">
+                <button onClick={handleSaveMemo} disabled={savingMemo} className="text-[11px] font-semibold text-blue-600 hover:underline disabled:opacity-40">저장</button>
+                <button onClick={() => setEditingMemo(false)} className="text-[11px] text-gray-400 hover:underline">취소</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-700 whitespace-pre-wrap leading-5">{memo || '메모가 없습니다.'}</p>
+          )}
         </div>
 
         {/* (3행) 댓글 */}
