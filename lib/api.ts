@@ -818,6 +818,21 @@ export async function createExperimentGroup(name: string, description?: string |
   });
 }
 
+export async function updateExperiment(
+  id: number,
+  body: { name?: string; description?: string },
+): Promise<Experiment> {
+  return request<Experiment>(`/experiments/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 테스트케이스가 하나라도 남아있으면 백엔드가 400으로 막는다 — 먼저 테스트케이스를 다 지워야 함 */
+export async function deleteExperiment(id: number): Promise<void> {
+  return request<void>(`/experiments/${id}`, { method: 'DELETE' });
+}
+
 /** 대표 테스트케이스(금메달) 수동 지정 — 이후 CSI 더 높은 게 생겨도 자동으로 안 뺏김 */
 export async function setGoldJob(experimentId: number, jobId: number): Promise<Experiment> {
   return request<Experiment>(`/experiments/${experimentId}/gold`, {

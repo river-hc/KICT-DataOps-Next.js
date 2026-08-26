@@ -1318,7 +1318,7 @@ export default function ExperimentDetailPage() {
                         type="button"
                         onClick={() => handleDeleteJob(job.job_id)}
                         disabled={deletingId === job.job_id}
-                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
                         title="테스트케이스 삭제"
                         aria-label="테스트케이스 삭제"
                       >
