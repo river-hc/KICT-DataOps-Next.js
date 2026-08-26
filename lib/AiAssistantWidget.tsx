@@ -2,56 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { queryAssistant, queryLlmAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
+import { getCurrentUsername } from '@/lib/account';
 
-// 신경망/노드-엣지 느낌의 장식용 배경 (좌표 고정 — 서버/클라이언트 렌더 불일치 방지)
-const NODES: [number, number][] = [
-  [12, 18], [48, 10], [82, 22], [20, 46], [60, 40],
-  [90, 52], [8, 74], [42, 68], [72, 78], [95, 90],
-  [30, 92], [58, 96],
-];
-const EDGES: [number, number][] = [
-  [0, 1], [1, 2], [0, 3], [1, 4], [2, 4], [2, 5],
-  [3, 4], [3, 6], [4, 5], [4, 7], [5, 9], [6, 7],
-  [7, 8], [8, 9], [7, 10], [8, 11], [10, 11], [3, 7],
-];
-
-function NeuralNetBackground() {
+// AI를 나타내는 스파클(반짝임) 아이콘 — 물음표는 "도움말"로 읽혀서, 요즘 AI 제품들이
+// 공통적으로 쓰는 4각 별 모양으로 바꿨다.
+function SparkleIcon({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      className="absolute inset-0 h-full w-full opacity-40"
-      aria-hidden="true"
-    >
-      {EDGES.map(([a, b], i) => (
-        <line
-          key={i}
-          x1={NODES[a][0]} y1={NODES[a][1]}
-          x2={NODES[b][0]} y2={NODES[b][1]}
-          stroke="white" strokeWidth={0.3}
-        />
-      ))}
-      {NODES.map(([x, y], i) => (
-        <circle key={i} cx={x} cy={y} r={1.1} fill="white" />
-      ))}
-    </svg>
-  );
-}
-
-function QuestionMarkIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ filter: 'drop-shadow(0 1.5px 1.5px rgba(0,0,0,0.4))' }}
-    >
-      <path d="M9 8.5a3 3 0 115.8 1c0 2-2.8 2.2-2.8 4.6" />
-      <circle cx="12" cy="18" r="0.75" fill="currentColor" stroke="none" />
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+      <path d="M12 2.5c.6 3.4 1.4 5.6 2.5 6.9 1.1 1.3 3.2 2.2 6.5 2.6-3.3.4-5.4 1.3-6.5 2.6-1.1 1.3-1.9 3.5-2.5 6.9-.6-3.4-1.4-5.6-2.5-6.9-1.1-1.3-3.2-2.2-6.5-2.6 3.3-.4 5.4-1.3 6.5-2.6 1.1-1.3 1.9-3.5 2.5-6.9z" />
     </svg>
   );
 }
@@ -116,7 +74,8 @@ export default function AiAssistantWidget() {
     setInput('');
     setSending(true);
     try {
-      const result = useLlm ? await queryLlmAssistant(text) : await queryAssistant(text);
+      const requester = getCurrentUsername();
+      const result = useLlm ? await queryLlmAssistant(text, requester) : await queryAssistant(text, requester);
       setMessages(prev => [...prev, { role: 'assistant', text: result.message, results: result.results }]);
     } catch (err) {
       setMessages(prev => [
@@ -138,22 +97,21 @@ export default function AiAssistantWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[360px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
-          {/* 헤더 — 신경망 배경 */}
-          <div className="relative overflow-hidden px-4 py-4" style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 45%, #7c3aed 100%)' }}>
-            <NeuralNetBackground />
-            <div className="relative flex items-center gap-3">
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/15">
-                <KAvatar className="text-sm text-white" />
+        <div className="fixed bottom-24 right-6 z-50 flex max-h-[calc(100vh-8rem)] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+          {/* 헤더 — 깔끔한 흰 배경, 단색 accent만 사용 */}
+          <div className="flex-shrink-0 border-b border-gray-100 px-4 py-3.5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                <SparkleIcon className="h-4.5 w-4.5 text-indigo-600" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-white">AI 어시스턴트</p>
-                <p className="text-[11px] text-white/70">실험·테스트케이스 검색</p>
+                <p className="text-sm font-semibold text-gray-900">AI 어시스턴트</p>
+                <p className="text-[11px] text-gray-400">실험·테스트케이스 검색</p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-lg p-1 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                 aria-label="닫기"
               >
                 <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
@@ -161,18 +119,18 @@ export default function AiAssistantWidget() {
                 </svg>
               </button>
             </div>
-            <div className="relative mt-3 flex items-center gap-1 rounded-lg bg-white/10 p-0.5 text-[11px] font-semibold">
+            <div className="mt-3 flex items-center gap-1 rounded-lg bg-gray-100 p-0.5 text-[11px] font-semibold">
               <button
                 type="button"
                 onClick={() => setUseLlm(false)}
-                className={`flex-1 rounded-md py-1 transition-colors ${!useLlm ? 'bg-white text-indigo-700' : 'text-white/70 hover:text-white'}`}
+                className={`flex-1 rounded-md py-1.5 transition-colors ${!useLlm ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 빠른 검색
               </button>
               <button
                 type="button"
                 onClick={() => setUseLlm(true)}
-                className={`flex-1 rounded-md py-1 transition-colors ${useLlm ? 'bg-white text-indigo-700' : 'text-white/70 hover:text-white'}`}
+                className={`flex-1 rounded-md py-1.5 transition-colors ${useLlm ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 title="사내망 로컬 LLM(Gemma 4)이 답변합니다 — 응답이 느릴 수 있어요"
               >
                 AI 모드
@@ -181,12 +139,12 @@ export default function AiAssistantWidget() {
           </div>
 
           {/* 대화 영역 */}
-          <div ref={scrollRef} className="max-h-[420px] min-h-[220px] space-y-3 overflow-y-auto bg-gray-50 px-4 py-4">
+          <div ref={scrollRef} className="min-h-[220px] flex-1 space-y-3 overflow-y-auto bg-gray-50 px-4 py-4">
             <div className="flex items-start gap-2">
               <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100">
                 <KAvatar className="text-xs text-indigo-600" />
               </div>
-              <div className="max-w-[260px] rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700 shadow-sm">
+              <div className="max-w-[280px] rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-700 shadow-sm">
                 무엇을 도와드릴까요? 예: &quot;8월 25일부터 8월 27일까지 CSI 잘나온 순서대로 5개&quot;
               </div>
             </div>
@@ -195,7 +153,7 @@ export default function AiAssistantWidget() {
               if (msg.role === 'user') {
                 return (
                   <div key={i} className="flex justify-end">
-                    <div className="max-w-[260px] rounded-2xl rounded-tr-sm bg-indigo-600 px-3.5 py-2.5 text-sm text-white shadow-sm">
+                    <div className="max-w-[280px] rounded-2xl rounded-tr-sm bg-indigo-600 px-3.5 py-2.5 text-sm text-white shadow-sm">
                       {msg.text}
                     </div>
                   </div>
@@ -207,7 +165,7 @@ export default function AiAssistantWidget() {
                     <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-red-100">
                       <KAvatar className="text-xs text-red-600" />
                     </div>
-                    <div className="max-w-[260px] rounded-2xl rounded-tl-sm border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700 shadow-sm">
+                    <div className="max-w-[280px] rounded-2xl rounded-tl-sm border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700 shadow-sm">
                       {msg.text}
                     </div>
                   </div>
@@ -249,7 +207,7 @@ export default function AiAssistantWidget() {
           </div>
 
           {/* 입력창 */}
-          <div className="border-t border-gray-100 bg-white px-3 py-3">
+          <div className="flex-shrink-0 border-t border-gray-100 bg-white px-3 py-3">
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -279,14 +237,17 @@ export default function AiAssistantWidget() {
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        aria-label="AI 어시스턴트 열기"
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg transition-transform hover:scale-105"
-        style={{
-          background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 45%, #7c3aed 100%)',
-          boxShadow: '0 8px 24px rgba(99,102,241,0.45)',
-        }}
+        aria-label={open ? 'AI 어시스턴트 닫기' : 'AI 어시스턴트 열기'}
+        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg transition-all hover:scale-105 hover:bg-indigo-700 active:scale-95"
+        style={{ boxShadow: '0 10px 24px -6px rgba(79,70,229,0.5)' }}
       >
-        <QuestionMarkIcon className="h-8 w-8 text-white" />
+        {open ? (
+          <svg viewBox="0 0 20 20" className="h-6 w-6 text-white" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <path d="M4 4l12 12M16 4L4 16" />
+          </svg>
+        ) : (
+          <SparkleIcon className="h-6 w-6 text-white" />
+        )}
       </button>
     </>
   );
