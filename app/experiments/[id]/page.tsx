@@ -6,10 +6,10 @@ import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
   getExperiment, getTrainingJobsByExperiment, getModels, getTrainingResult, deleteTraining, cancelTraining,
-  createExperimentJob, getDataCollectionInfo, getAnswerDatasets, createAnswerDataset,
+  createExperimentJob, getDataCollectionInfo, getAnswerDatasets, createAnswerDataset, checkAnswerDatasetCoverage,
   displayUsername, formatExecutionName, setGoldJob, clearGoldJob,
   type TrainingJob, type AscFileInput, type ModelVersion, type DataCollectionDatasetGroup,
-  type TrainingResult, type Experiment, type AnswerDataset,
+  type TrainingResult, type Experiment, type AnswerDataset, type AnswerDatasetCoverage,
 } from '@/lib/api';
 import {
   loadTcModelMeta, saveTcModelMeta,
@@ -545,6 +545,32 @@ function AddTcModal({
   const selectedGroup = datasetGroups.find(group => group.id === selectedGroupId) ?? null;
   const selectedAnswerDataset = answerDatasets.find(dataset => dataset.id === answerDatasetId) ?? null;
 
+  // 실행 전에 "정답 데이터가 이 시간대를 커버하는지" 미리 확인 — 실제 추론(수 분 소요)
+  // 없이도 지표가 나올지 알 수 있게 한다. run_datetime 계산은 handleSubmitTc와 동일한
+  // 규칙(입력 파일 중 가장 늦은 시각)을 쓰되, 배열 순서에 기대지 않고 직접 최댓값을 구한다.
+  const sourceFilenames = inputMode === 'LOAD'
+    ? (selectedGroup?.files ?? [])
+    : ascFolder.files.map(file => file.name);
+  const effectiveRunDatetime = sourceFilenames
+    .map(getCompactDtFromFilename)
+    .filter((dt): dt is string => dt != null)
+    .sort()
+    .at(-1) ?? null;
+
+  const [coverage, setCoverage] = useState<AnswerDatasetCoverage | null>(null);
+  const [checkingCoverage, setCheckingCoverage] = useState(false);
+
+  useEffect(() => {
+    if (!answerDatasetId || !effectiveRunDatetime) { setCoverage(null); return; }
+    let cancelled = false;
+    setCheckingCoverage(true);
+    checkAnswerDatasetCoverage(answerDatasetId, effectiveRunDatetime)
+      .then(result => { if (!cancelled) setCoverage(result); })
+      .catch(() => { if (!cancelled) setCoverage(null); })
+      .finally(() => { if (!cancelled) setCheckingCoverage(false); });
+    return () => { cancelled = true; };
+  }, [answerDatasetId, effectiveRunDatetime]);
+
   const handleAnswerFiles = (fileList: FileList | null) => {
     if (!fileList) return;
     setAnswerUploadFiles(Array.from(fileList).filter(file => file.name.toLowerCase().endsWith('.asc')));
@@ -760,6 +786,30 @@ function AddTcModal({
                     <p className="break-all font-mono text-[11px] text-gray-500">{selectedAnswerDataset.path}</p>
                     <p className="mt-1 text-[11px] text-gray-400">{selectedAnswerDataset.file_count}개 파일</p>
                   </div>
+                )}
+                {checkingCoverage && (
+                  <p className="mt-3 text-[11px] text-gray-400">이 시간대 정답 데이터 확인 중...</p>
+                )}
+                {!checkingCoverage && coverage && (
+                  coverage.matched_steps === coverage.total_steps ? (
+                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-emerald-700">
+                        ✓ 이 시간대 정답 데이터 {coverage.matched_steps}/{coverage.total_steps} 확인됨 — 지표가 정상적으로 나올 거예요.
+                      </p>
+                    </div>
+                  ) : coverage.matched_steps === 0 ? (
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-red-700">
+                        ⚠ 이 시간대엔 이 정답 데이터셋에 맞는 파일이 없어요 — 실행해도 MAE/RMSE/CSI가 안 나올 거예요.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-amber-700">
+                        ⚠ 선행시간 {coverage.total_steps}개 중 {coverage.matched_steps}개만 매칭돼요 — 일부 지표만 나올 수 있어요.
+                      </p>
+                    </div>
+                  )
                 )}
               </div>
             ) : (

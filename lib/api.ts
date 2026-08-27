@@ -889,6 +889,23 @@ export async function getAnswerDatasets(): Promise<AnswerDataset[]> {
   return request<AnswerDataset[]>('/answer-datasets');
 }
 
+export interface AnswerDatasetCoverage {
+  total_steps: number;
+  matched_steps: number;
+  missing_steps: number[];
+}
+
+// 테스트케이스를 실제로 실행하기 전에, 고른 정답 데이터셋이 이 run_datetime 기준
+// 18개 선행시간에 대해 실제 정답 파일을 갖고 있는지 미리 확인한다(수 분 걸리는 실행 없이).
+export async function checkAnswerDatasetCoverage(
+  datasetId: number,
+  runDatetime: string,
+): Promise<AnswerDatasetCoverage> {
+  return request<AnswerDatasetCoverage>(
+    `/answer-datasets/${datasetId}/coverage?run_datetime=${encodeURIComponent(runDatetime)}`,
+  );
+}
+
 export async function deleteAnswerDataset(id: number): Promise<void> {
   return request<void>(`/answer-datasets/${id}`, { method: 'DELETE' });
 }
