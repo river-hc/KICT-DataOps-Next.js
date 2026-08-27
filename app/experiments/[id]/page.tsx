@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Layout from '@/lib/Layout';
 import {
-  getExperiment, getTrainingJobsByExperiment, getModels, getTrainingResult, deleteTraining,
+  getExperiment, getTrainingJobsByExperiment, getModels, getTrainingResult, deleteTraining, cancelTraining,
   createExperimentJob, getDataCollectionInfo, getAnswerDatasets, createAnswerDataset,
   displayUsername, formatExecutionName, setGoldJob, clearGoldJob,
   type TrainingJob, type AscFileInput, type ModelVersion, type DataCollectionDatasetGroup,
@@ -485,6 +485,7 @@ function AddTcModal({
     observationDatasetDir: string | null,
     outputDir: string | null,
     inputDatasetDir: string | null,
+    inputDatasetName: string | null,
     inputDatasetFiles: string[],
     answerDatasetId: number | null,
   ) => Promise<void>;
@@ -588,6 +589,7 @@ function AddTcModal({
         DEFAULT_OBSERVATION_DATASET_DIR,
         null,
         inputMode === 'LOAD' ? selectedGroup?.path ?? null : null,
+        inputMode === 'LOAD' ? selectedGroup?.name ?? null : null,
         inputMode === 'LOAD' ? selectedGroup?.files ?? [] : [],
         answerDatasetId,
       );
@@ -858,6 +860,7 @@ export default function ExperimentDetailPage() {
   const [compareIds,    setCompareIds]  = useState<Set<number>>(new Set());
   const [showCompare,   setShowCompare] = useState(false);
   const [deletingId,    setDeletingId]  = useState<number | null>(null);
+  const [cancelingId,   setCancelingId] = useState<number | null>(null);
 
   // 실험 환경 로드 (서버 기준)
   useEffect(() => {
@@ -990,6 +993,7 @@ export default function ExperimentDetailPage() {
     observationDatasetDir: string | null,
     outputDir: string | null,
     inputDatasetDir: string | null,
+    inputDatasetName: string | null,
     inputDatasetFiles: string[],
     answerDatasetId: number | null,
   ) => {
@@ -1027,6 +1031,7 @@ export default function ExperimentDetailPage() {
       answer_dataset_id:      answerDatasetId,
       output_dir:             outputDir,
       input_dataset_dir:       inputDatasetDir,
+      input_dataset_name:      inputDatasetName,
       input_files: files ? {
         file_t0: makeFile(files.t0),
         file_t1: makeFile(files.t1),
@@ -1100,6 +1105,19 @@ export default function ExperimentDetailPage() {
       alert(err instanceof Error ? err.message : '삭제에 실패했습니다.');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleCancelJob = async (jobId: number) => {
+    if (!window.confirm('이 테스트케이스를 취소할까요? 실행 중이면 즉시 중단됩니다.')) return;
+    setCancelingId(jobId);
+    try {
+      await cancelTraining(jobId);
+      fetchJobs();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '취소에 실패했습니다.');
+    } finally {
+      setCancelingId(null);
     }
   };
 
@@ -1313,6 +1331,21 @@ export default function ExperimentDetailPage() {
                     {fmtCell(sum?.csi)}
                   </td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {(s === 'RUNNING' || s === 'QUEUED') && (
+                      <button
+                        type="button"
+                        onClick={() => handleCancelJob(job.job_id)}
+                        disabled={cancelingId === job.job_id}
+                        className="inline-flex items-center justify-center rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                        title="테스트케이스 취소"
+                        aria-label="테스트케이스 취소"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.9} viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="9" strokeLinecap="round" />
+                          <path strokeLinecap="round" d="M9 9l6 6m0-6l-6 6" />
+                        </svg>
+                      </button>
+                    )}
                     {s !== 'RUNNING' && s !== 'QUEUED' && (
                       <button
                         type="button"
@@ -1344,6 +1377,7 @@ export default function ExperimentDetailPage() {
                         { label: '소요 시간', value: fmtDur(job.started_at, job.finished_at) },
                         { label: '생성자',    value: displayRequester },
                         { label: '모드',      value: displayMode },
+                        { label: '입력 데이터셋', value: result?.params.observation_dataset_name ?? result?.params.input_dataset_name ?? '직접 업로드' },
                       ].map(row => (
                         <div key={row.label}>
                           <p className="text-[11px] text-gray-400 uppercase font-semibold tracking-wide mb-0.5">{row.label}</p>

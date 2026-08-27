@@ -55,11 +55,12 @@ export interface TrainingResultParams {
   include_preview_image: boolean | null;
   run_datetime: string | null;
   observation_dataset_id?: number | null;
+  observation_dataset_name?: string | null;
   observation_dataset_dir?: string | null;
+  input_dataset_name?: string | null;
   answer_dataset_id?: number | null;
   answer_dataset_name?: string | null;
   output_dir?: string | null;
-  // 실험 등록 시 작성한 메모 — 백엔드 응답 노출 대기 (request.md 항목 9)
   experiment_memo?: string | null;
   git_commit?: string | null;
 }
@@ -575,6 +576,7 @@ interface TrainingFormFields {
   experiment_memo?: string | null;
   output_dir?: string | null;
   input_dataset_dir?: string | null;
+  input_dataset_name?: string | null;
   input_files?: {
     file_t0: AscFileInput;
     file_t1: AscFileInput;
@@ -599,6 +601,7 @@ function buildTrainingFormData(body: TrainingFormFields): FormData {
   if (body.experiment_memo) formData.append('experiment_memo', body.experiment_memo);
   if (body.output_dir) formData.append('output_dir', body.output_dir);
   if (body.input_dataset_dir) formData.append('input_dataset_dir', body.input_dataset_dir);
+  if (body.input_dataset_name) formData.append('input_dataset_name', body.input_dataset_name);
 
   if (body.input_dataset_dir) return formData;
   if (!body.input_files) throw new Error('ASC 입력 파일이 없습니다.');
@@ -650,6 +653,10 @@ export async function getTraining(jobId: number): Promise<TrainingJob> {
 
 export async function deleteTraining(jobId: number): Promise<void> {
   return request<void>(`/trainings/${jobId}`, { method: 'DELETE' });
+}
+
+export async function cancelTraining(jobId: number): Promise<TrainingJob> {
+  return request<TrainingJob>(`/trainings/${jobId}/cancel`, { method: 'POST' });
 }
 
 export async function updateTraining(
@@ -724,6 +731,7 @@ export interface ExperimentCreateRequest {
     file_t3: AscFileInput;
   };
   input_dataset_dir?: string | null;
+  input_dataset_name?: string | null;
   model_version: string | null;
   mode?: 'single' | 'multi' | string | null;
   forecast_steps: number[] | null;
