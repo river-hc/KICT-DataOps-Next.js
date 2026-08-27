@@ -96,7 +96,7 @@ export default function AiAssistantWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 flex max-h-[calc(100vh-8rem)] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="fixed bottom-24 right-6 z-50 flex h-[calc(100vh-8rem)] max-h-[720px] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
           {/* 헤더 — 깔끔한 흰 배경, 단색 accent만 사용 */}
           <div className="flex-shrink-0 border-b border-gray-100 px-4 py-3.5">
             <div className="flex items-center gap-3">
@@ -179,10 +179,9 @@ export default function AiAssistantWidget() {
                 <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100">
                   <KAvatar className="text-xs text-indigo-600" />
                 </div>
-                <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-300 [animation-delay:-0.3s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-300 [animation-delay:-0.15s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-300" />
+                <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
+                  <span className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600" />
+                  <span className="animate-pulse text-sm text-gray-500">생각하는 중…</span>
                 </div>
               </div>
             )}
