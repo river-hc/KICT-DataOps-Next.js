@@ -86,8 +86,8 @@ export default function AiAssistantWidget() {
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -190,15 +190,15 @@ export default function AiAssistantWidget() {
 
           {/* 입력창 */}
           <div className="flex-shrink-0 border-t border-gray-100 bg-white px-3 py-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
+            <div className="flex items-end gap-2">
+              <textarea
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 disabled={sending}
                 placeholder="메시지를 입력하세요"
-                className="w-full flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 disabled:text-gray-400"
+                rows={3}
+                className="w-full flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 disabled:text-gray-400"
               />
               <button
                 type="button"
