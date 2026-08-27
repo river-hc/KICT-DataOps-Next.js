@@ -96,7 +96,7 @@ export default function AiAssistantWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 flex h-[calc(100vh-8rem)] max-h-[720px] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="fixed bottom-32 right-6 z-50 flex h-[calc(100vh-10rem)] max-h-[720px] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
           {/* 헤더 — 깔끔한 흰 배경, 단색 accent만 사용 */}
           <div className="flex-shrink-0 border-b border-gray-100 px-4 py-3.5">
             <div className="flex items-center gap-3">
@@ -180,7 +180,7 @@ export default function AiAssistantWidget() {
                   <KAvatar className="text-xs text-indigo-600" />
                 </div>
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
-                  <span className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600" />
+                  <SparkleIcon className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 [animation:ai-thinking-spin_1.3s_ease-in-out_infinite]" />
                   <span className="animate-pulse text-sm text-gray-500">생각하는 중…</span>
                 </div>
               </div>
@@ -219,7 +219,7 @@ export default function AiAssistantWidget() {
         type="button"
         onClick={() => setOpen(v => !v)}
         aria-label={open ? 'AI 어시스턴트 닫기' : 'AI 어시스턴트 열기'}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg transition-all hover:scale-105 hover:bg-indigo-700 active:scale-95"
+        className="fixed bottom-12 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg transition-all hover:scale-105 hover:bg-indigo-700 active:scale-95"
         style={{ boxShadow: '0 10px 24px -6px rgba(79,70,229,0.5)' }}
       >
         {open ? (
