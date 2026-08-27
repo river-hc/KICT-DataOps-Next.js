@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { queryAssistant, queryLlmAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
+import { queryLlmAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
 import { getCurrentUsername } from '@/lib/account';
 
 // AI를 나타내는 스파클(반짝임) 아이콘 — 물음표는 "도움말"로 읽혀서, 요즘 AI 제품들이
@@ -58,7 +58,6 @@ export default function AiAssistantWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [useLlm, setUseLlm] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -75,7 +74,7 @@ export default function AiAssistantWidget() {
     setSending(true);
     try {
       const requester = getCurrentUsername();
-      const result = useLlm ? await queryLlmAssistant(text, requester) : await queryAssistant(text, requester);
+      const result = await queryLlmAssistant(text, requester);
       setMessages(prev => [...prev, { role: 'assistant', text: result.message, results: result.results }]);
     } catch (err) {
       setMessages(prev => [
@@ -106,7 +105,7 @@ export default function AiAssistantWidget() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-gray-900">AI 어시스턴트</p>
-                <p className="text-[11px] text-gray-400">실험·테스트케이스 검색</p>
+                <p className="text-[11px] text-gray-400">사내망 로컬 LLM · 응답이 다소 걸릴 수 있어요</p>
               </div>
               <button
                 type="button"
@@ -117,23 +116,6 @@ export default function AiAssistantWidget() {
                 <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
                   <path d="M2 2l12 12M14 2L2 14" />
                 </svg>
-              </button>
-            </div>
-            <div className="mt-3 flex items-center gap-1 rounded-lg bg-gray-100 p-0.5 text-[11px] font-semibold">
-              <button
-                type="button"
-                onClick={() => setUseLlm(false)}
-                className={`flex-1 rounded-md py-1.5 transition-colors ${!useLlm ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                빠른 검색
-              </button>
-              <button
-                type="button"
-                onClick={() => setUseLlm(true)}
-                className={`flex-1 rounded-md py-1.5 transition-colors ${useLlm ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                title="사내망 로컬 LLM(Gemma 4)이 답변합니다 — 응답이 느릴 수 있어요"
-              >
-                AI 모드
               </button>
             </div>
           </div>
