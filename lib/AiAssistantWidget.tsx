@@ -180,7 +180,7 @@ export default function AiAssistantWidget() {
                   <KAvatar className="text-xs text-indigo-600" />
                 </div>
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
-                  <SparkleIcon className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 [animation:ai-thinking-spin_1.3s_ease-in-out_infinite]" />
+                  <SparkleIcon className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 [animation:ai-thinking-spin_2.5s_linear_infinite]" />
                   <span className="animate-pulse text-sm text-gray-500">생각하는 중…</span>
                 </div>
               </div>

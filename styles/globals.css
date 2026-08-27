@@ -125,10 +125,10 @@ body {
   100% { left: 100%; width: 45%; }
 }
 
-/* AI 어시스턴트 로딩 아이콘 — 회전+확대축소로 반짝이는 느낌 */
+/* AI 어시스턴트 로딩 아이콘 — 천천히 한 방향으로 계속 회전 */
 @keyframes ai-thinking-spin {
-  0%, 100% { transform: rotate(0deg) scale(0.85); opacity: 0.7; }
-  50%      { transform: rotate(180deg) scale(1.15); opacity: 1; }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .progress-indeterminate {
