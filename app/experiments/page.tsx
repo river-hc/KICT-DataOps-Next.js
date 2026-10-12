@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { getExperimentJobs, getExperiments, createExperimentGroup, updateExperiment, deleteExperiment, type TrainingJob, type Experiment } from '@/lib/api';
+import { getExperimentJobs, getExperiments, createExperimentGroup, updateExperiment, deleteExperiment, displayUsername, type TrainingJob, type Experiment } from '@/lib/api';
 import { SkeletonTableRows } from '@/lib/Skeleton';
 
 // ─── 상태 요약 계산 ───────────────────────────────────────────────────────────
@@ -320,7 +320,7 @@ export default function ExperimentsPage() {
                     )}
                   </td>
                   <td className="px-5 py-3 text-gray-500 text-xs font-mono whitespace-nowrap">
-                    {exp.created_by || '-'}
+                    {displayUsername(exp.created_by, exp.created_by_nickname)}
                   </td>
                   <td className="px-5 py-3 text-gray-500 text-sm max-w-[280px]">
                     <span className="line-clamp-1">{exp.description || '-'}</span>

@@ -16,7 +16,6 @@ const TC_MODEL_KEY   = 'kict_tc_model_meta';
 
 export interface TcModelMeta {
   modelVersion: string;
-  architecture: 'single' | 'multi' | null;
   requester?: string | null;
 }
 
@@ -88,7 +87,7 @@ export function removeTcFromExpMap(expId: number, jobId: number): void {
   }
 }
 
-// ─── TC 모델 메타 (백엔드 mode 응답 보정용) ─────────────────────────────────
+// ─── TC 모델 메타 (모델 버전/요청자 표시 보조용 — mode는 이제 백엔드가 정확히 반환한다) ──
 
 export function saveTcModelMeta(jobId: number, meta: TcModelMeta): void {
   if (typeof window === 'undefined') return;

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ACCOUNT_PROFILE_EVENT, getDisplayUsername } from './account';
+import { ACCOUNT_PROFILE_EVENT, applyServerNickname, getCurrentUsername, getDisplayUsername } from './account';
+import { fetchAccountNickname } from './api';
 
 export default function UserPopup() {
   const [username, setUsername] = useState('');
@@ -17,6 +18,14 @@ export default function UserPopup() {
       window.removeEventListener(ACCOUNT_PROFILE_EVENT, syncUsername);
       window.removeEventListener('storage', syncUsername);
     };
+  }, []);
+
+  // 이 브라우저에서 닉네임을 바꾼 적이 없어도(다른 기기에서 바꿨어도) 서버 기준 최신값으로 맞춘다.
+  useEffect(() => {
+    const current = getCurrentUsername();
+    fetchAccountNickname(current)
+      .then(res => applyServerNickname(current, res.nickname))
+      .catch(() => { /* 조회 실패 시 로컬 캐시 유지 */ });
   }, []);
 
   const initial = username.charAt(0).toUpperCase();

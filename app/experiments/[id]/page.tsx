@@ -257,6 +257,53 @@ function ProgressBar({ job }: { job: TrainingJob }) {
   );
 }
 
+// ─── 대표 테스트케이스(금메달) 확인 모달 ────────────────────────────────────────────────
+
+function GoldConfirmModal({ mode, onCancel, onConfirm }: {
+  mode: 'set' | 'clear';
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isSet = mode === 'set';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative z-10 w-full max-w-sm mx-4 overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex flex-col items-center gap-3 px-6 pt-7 pb-2 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 ring-1 ring-amber-100">
+            <span className="text-2xl">🏅</span>
+          </div>
+          <h2 className="text-base font-bold text-gray-900">
+            {isSet ? '대표 테스트케이스로 고정할까요?' : '대표 고정을 해제할까요?'}
+          </h2>
+          <p className="text-sm leading-relaxed text-gray-500">
+            {isSet
+              ? '이 결과가 실험의 best 모델로 표시됩니다.'
+              : '해제하면 점수가 가장 좋은 테스트케이스로 메달이 자동 재배치됩니다.'}
+          </p>
+        </div>
+        <div className="mt-5 flex border-t border-gray-100">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-3 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-50"
+          >
+            취소
+          </button>
+          <div className="w-px bg-gray-100" />
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 py-3 text-sm font-bold text-amber-600 transition-colors hover:bg-amber-50"
+          >
+            {isSet ? '고정' : '해제'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── 테스트케이스 비교 모달 ──────────────────────────────────────────────────────────
 
 interface CompareRow { label: string; values: (job: TrainingJob, result?: TrainingResult) => string }
@@ -275,7 +322,10 @@ function CompareModal({ jobs, resultMap, onClose }: {
     { label: '예상시간',    values: job => fmtEta(job) },
     { label: 'MAE',         values: (_job, r) => r?.metrics.mae != null ? Number(r.metrics.mae).toFixed(3) : '-' },
     { label: 'RMSE',        values: (_job, r) => r?.metrics.rmse != null ? Number(r.metrics.rmse).toFixed(3) : '-' },
-    { label: 'CSI',         values: (_job, r) => r?.metrics.csi != null ? Number(r.metrics.csi).toFixed(3) : '-' },
+    { label: 'CSI',         values: (_job, r) => {
+      const csi = parseMetrics(r?.metrics).summary.csi;
+      return csi != null ? csi.toFixed(3) : '-';
+    } },
   ];
 
   return (
@@ -794,19 +844,19 @@ function AddTcModal({
                   coverage.matched_steps === coverage.total_steps ? (
                     <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                       <p className="text-[11px] font-semibold text-emerald-700">
-                        ✓ 이 시간대 정답 데이터 {coverage.matched_steps}/{coverage.total_steps} 확인됨 — 지표가 정상적으로 나올 거예요.
+                        ✓ 정답 데이터 {coverage.matched_steps}/{coverage.total_steps} 확인
                       </p>
                     </div>
                   ) : coverage.matched_steps === 0 ? (
                     <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
                       <p className="text-[11px] font-semibold text-red-700">
-                        ⚠ 이 시간대엔 이 정답 데이터셋에 맞는 파일이 없어요 — 실행해도 MAE/RMSE/CSI가 안 나올 거예요.
+                        ⚠ 정답 데이터 {coverage.matched_steps}/{coverage.total_steps} 없음
                       </p>
                     </div>
                   ) : (
                     <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
                       <p className="text-[11px] font-semibold text-amber-700">
-                        ⚠ 선행시간 {coverage.total_steps}개 중 {coverage.matched_steps}개만 매칭돼요 — 일부 지표만 나올 수 있어요.
+                        ⚠ 정답 데이터 {coverage.matched_steps}/{coverage.total_steps} 일부 확인
                       </p>
                     </div>
                   )
@@ -949,17 +999,20 @@ export default function ExperimentDetailPage() {
   }
   const goldJobId = experiment?.gold_job_id ?? autoGoldJobId;
   const isManualGold = experiment?.gold_job_id != null;
+  const [goldConfirmTarget, setGoldConfirmTarget] = useState<{ jobId: number; mode: 'set' | 'clear' } | null>(null);
 
-  const handleToggleGold = async (jobId: number) => {
+  const handleToggleGold = (jobId: number) => {
     if (!experiment) return;
+    setGoldConfirmTarget({ jobId, mode: isManualGold && goldJobId === jobId ? 'clear' : 'set' });
+  };
+
+  const handleConfirmGoldToggle = async () => {
+    if (!experiment || !goldConfirmTarget) return;
+    const { jobId, mode } = goldConfirmTarget;
+    setGoldConfirmTarget(null);
     try {
-      if (isManualGold && goldJobId === jobId) {
-        const updated = await clearGoldJob(experiment.id);
-        setExperiment(updated);
-      } else {
-        const updated = await setGoldJob(experiment.id, jobId);
-        setExperiment(updated);
-      }
+      const updated = mode === 'clear' ? await clearGoldJob(experiment.id) : await setGoldJob(experiment.id, jobId);
+      setExperiment(updated);
     } catch { /* noop */ }
   };
 
@@ -990,7 +1043,15 @@ export default function ExperimentDetailPage() {
   // 필요하므로 상태 무관하게 조회한다 — 안 그러면 FAILED/QUEUED 건은 run_datetime을 못 받아서
   // 실험명 문자열을 다시 파싱하다가 시각이 00시 00분으로 깨져 보인다.
   useEffect(() => {
-    const pending = tcJobs.filter(j => !(j.job_id in resultMap));
+    const TERMINAL = ['COMPLETED', 'FAILED'];
+    const pending = tcJobs.filter(j => {
+      const cached = resultMap[j.job_id];
+      if (!cached) return true;
+      // job이 실행 중일 때 한 번 조회해서 캐시된 뒤로는 다시 안 불러서, 완료 후 지표(MAE/RMSE/CSI)가
+      // 나와도 새로고침 전까진 계속 옛날(진행 중) 결과가 보이는 문제가 있었다 — job은 끝났는데
+      // 캐시된 결과가 아직 진행 중 상태면 한 번 더 조회한다.
+      return TERMINAL.includes(j.status.toUpperCase()) && !TERMINAL.includes((cached.status || '').toUpperCase());
+    });
     if (pending.length === 0) return;
     pending.forEach(j => {
       getTrainingResult(j.job_id)
@@ -1092,10 +1153,11 @@ export default function ExperimentDetailPage() {
 
     const result = await createExperimentJob(payload);
 
-    // 모델메타는 아직 클라이언트에 보관 — 백엔드 mode 응답 보정용. 메모는 이제 백엔드가
+    // 모델 버전/요청자 표시 보조용으로만 클라이언트에 보관 — mode는 백엔드가 리졸브한
+    // 모델의 실제 architecture로 정확히 저장하므로 여기서 따로 안 남긴다. 메모도 이제 백엔드가
     // experiment_memo를 저장/응답하므로(결과 조회 API) 따로 localStorage에 안 남긴다.
     if (result?.job_id) {
-      saveTcModelMeta(result.job_id, { modelVersion, architecture: modelMode, requester });
+      saveTcModelMeta(result.job_id, { modelVersion, requester });
     }
     fetchJobs();
   };
@@ -1222,13 +1284,21 @@ export default function ExperimentDetailPage() {
         />
       )}
 
+      {goldConfirmTarget && (
+        <GoldConfirmModal
+          mode={goldConfirmTarget.mode}
+          onCancel={() => setGoldConfirmTarget(null)}
+          onConfirm={handleConfirmGoldToggle}
+        />
+      )}
+
       {(experiment.description || experiment.created_by) && (
         <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
           {experiment.description && (
             <p className="text-sm text-gray-500">{experiment.description}</p>
           )}
           {experiment.created_by && (
-            <span className="text-xs text-gray-400 font-mono">생성자: {experiment.created_by}</span>
+            <span className="text-xs text-gray-400 font-mono">생성자: {displayUsername(experiment.created_by, experiment.created_by_nickname)}</span>
           )}
         </div>
       )}
@@ -1295,12 +1365,8 @@ export default function ExperimentDetailPage() {
               const storedMeta = loadTcModelMeta(job.job_id);
               const modelVer   = result?.params.model_version ?? storedMeta?.modelVersion ?? job.experiment_name.match(/v\d/i)?.[0] ?? '-';
               const executionName = formatExecutionName(job.experiment_name, result?.params.run_datetime);
-              const registryModel = models.find(model => model.version === modelVer);
-              const registryArch = registryModel?.metrics?.architecture;
-              const displayMode = storedMeta?.architecture
-                ?? (registryArch === 'multi' || registryArch === 'single' ? registryArch : null)
-                ?? job.mode;
-              const displayRequester = displayUsername(job.user_name);
+              const displayMode = job.mode;
+              const displayRequester = displayUsername(job.user_name, job.user_name_nickname);
               const sum        = tcSummary[job.job_id];
               const fmtCell = (v: number | null | undefined) =>
                 v == null
@@ -1326,6 +1392,7 @@ export default function ExperimentDetailPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 min-w-0">
+                      <span className="flex-shrink-0 text-[11px] font-mono text-gray-500">#{job.job_id}</span>
                       <button
                         type="button"
                         onClick={e => { e.stopPropagation(); handleToggleGold(job.job_id); }}
@@ -1453,17 +1520,30 @@ export default function ExperimentDetailPage() {
                     )}
 
                     {(s === 'COMPLETED' || s === 'FAILED' || s === 'CANCELED') && (
-                      <Link
-                        href={`/experiment-results/${job.job_id}`}
-                        className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition shadow-sm ${
-                          s === 'COMPLETED' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'
-                        }`}
-                      >
-                        {s === 'COMPLETED' ? '결과 상세 보기' : '로그 확인'}
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                        </svg>
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/experiment-results/${job.job_id}`}
+                          className={`inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition shadow-sm ${
+                            s === 'COMPLETED' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'
+                          }`}
+                        >
+                          {s === 'COMPLETED' ? '결과 상세 보기' : '로그 확인'}
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </Link>
+                        {s === 'COMPLETED' && (
+                          <Link
+                            href={`/artifacts/${job.job_id}`}
+                            className="inline-flex items-center gap-2 px-4 py-2 text-white text-sm font-semibold rounded-lg transition shadow-sm bg-blue-600 hover:bg-blue-700"
+                          >
+                            아티팩트
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </Link>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>

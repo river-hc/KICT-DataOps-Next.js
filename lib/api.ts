@@ -26,6 +26,7 @@ export interface HealthStatus {
 export interface TrainingJob {
   job_id: number;
   user_name: string;
+  user_name_nickname?: string | null;
   experiment_id?: number | null;
   experiment_name: string;
   mode: string;
@@ -92,6 +93,7 @@ export interface Experiment {
   name: string;
   description: string | null;
   created_by: string | null;
+  created_by_nickname?: string | null;
   gold_job_id: number | null;
   created_at: string | null;
 }
@@ -107,6 +109,7 @@ export interface ExperimentRun {
   parameters: Record<string, unknown> | null;
   metrics: Record<string, unknown> | null;
   created_by: string | null;
+  created_by_nickname?: string | null;
   started_at: string | null;
   finished_at: string | null;
   duration_seconds: number | null;
@@ -145,6 +148,9 @@ export interface ModelVersion {
     [key: string]: unknown;
   } | null;
   model_path: string | null;
+  created_by?: string | null;
+  created_by_nickname?: string | null;
+  usage_count?: number;
   created_at: string | null;
 }
 
@@ -178,6 +184,7 @@ export interface SystemStatus {
 
 export interface LoginResponse {
   username: string;
+  nickname?: string | null;
   message: string;
 }
 
@@ -213,12 +220,21 @@ export interface DataCollectionPipelineResult {
   finished_at: string;
 }
 
+export interface AnswerOffsetResult {
+  offset_minutes: number;
+  target_datetime: string;
+  status: 'COMPLETED' | 'MISSING' | string;
+}
+
 export interface CollectAnswerDataResult {
   status: 'COMPLETED' | 'FAILED' | string;
   message: string;
   answer_dataset_id?: number | null;
   answer_dataset_name?: string | null;
   answer_file_count?: number;
+  output_dir?: string | null;
+  files?: string[];
+  offset_results?: AnswerOffsetResult[];
 }
 
 export interface DataCollectionJob {
@@ -247,6 +263,7 @@ export interface DataCollectionDatasetGroup {
   created_at?: string | null;
   dataset_name?: string | null;
   created_by?: string | null;
+  created_by_nickname?: string | null;
   target_datetimes?: string[];
   interval_minutes?: number | null;
   raw_group_id?: string | null;
@@ -258,6 +275,7 @@ export interface DataCollectionInfo {
   converter_command_configured: boolean;
   raw_output_dir: string;
   training_dataset_dir: string;
+  answer_data_dir: string;
   timeout_seconds: number;
   raw_file_count: number;
   raw_files: string[];
@@ -305,23 +323,31 @@ export function getUsername(): string | null {
 }
 
 /** 그 job/실험을 실제로 만든 계정 아이디를 그대로 표시 (닉네임이 아니라 아이디 — 브라우저 무관하게 항상 동일) */
-export function displayUsername(value?: string | null): string {
+export function displayUsername(value?: string | null, nickname?: string | null): string {
+  const trimmedNickname = (nickname || '').trim();
+  if (trimmedNickname) return trimmedNickname;
   const username = (value || '').trim();
   if (!username || username === 'anonymous') return '-';
   return username;
 }
 
 export function formatExecutionName(value?: string | null, runDatetime?: string | null): string {
-  const source = (runDatetime || value || '').trim();
-  // 대시보드 등 일부 화면은 runDatetime 없이 이미 이 함수로 만들어진 experiment_name만 다시 넘긴다 —
-  // "YYYY-MM-DD 강우 실험(HH시 MM분)" 형태면 시:분 뒤에 한글이 와서 재파싱 시 00시 00분으로 깨지므로
-  // 그대로 돌려준다.
-  if (/^\d{4}-\d{2}-\d{2} 강우 실험\(\d{1,2}시 \d{1,2}분\)$/.test(source)) {
-    return source;
+  const trimmedValue = (value || '').trim();
+
+  // 백엔드가 이름을 안 지어준 job에 자동으로 넣는 원본 placeholder는 항상 "rainfall-{run_datetime}"
+  // 형태다(training_service.py의 `experiment_name or f"rainfall-{run_datetime}"`) — 이 경우에만
+  // 날짜를 예쁘게 포맷한다. 그 외엔 사용자가 지은 이름(날짜로 시작하든, "강우 실험"을 포함하든,
+  // 완전히 다른 텍스트든 전부 포함)이므로 절대 재파싱하지 않고 그대로 보여준다 — 재파싱하면
+  // 시:분이 00:00으로 밀리고 사용자가 쓴 텍스트가 통째로 사라지는 문제가 있었다.
+  if (trimmedValue && !trimmedValue.startsWith('rainfall-')) {
+    return trimmedValue;
   }
+
+  const source = trimmedValue || (runDatetime || '').trim();
   const iso = source.match(/(\d{4})-(\d{2})-(\d{2})[T\s]?(\d{2})?:?(\d{2})?/);
   const compact = source.match(/(20\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
   const match = iso ?? compact;
+
   if (!match) return value || '-';
 
   const [, y, m, d, h = '00', min = '00'] = match;
@@ -372,6 +398,21 @@ export async function changeAccountPassword(
     method: 'POST',
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
   });
+}
+
+export async function updateAccountNickname(
+  username: string,
+  nickname: string,
+): Promise<{ username: string; nickname: string; message: string }> {
+  return request(`/accounts/${encodeURIComponent(username)}/nickname`, {
+    method: 'PATCH',
+    body: JSON.stringify({ nickname }),
+  });
+}
+
+/** 이 기기/브라우저의 로그인 세션이 오래돼도 우측 상단 표시가 서버 기준 최신 닉네임을 따라가도록 조회 */
+export async function fetchAccountNickname(username: string): Promise<{ username: string; nickname: string | null }> {
+  return request(`/accounts/${encodeURIComponent(username)}/nickname`);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -490,6 +531,8 @@ export async function createDataCollectionJob(body: {
   dataset_name?: string | null;
   created_by?: string | null;
   collect_answer_data: boolean;
+  answer_interval_minutes?: number;
+  answer_target_datetimes?: string[];
 }): Promise<DataCollectionJob> {
   return request<DataCollectionJob>('/data-collection/jobs', {
     method: 'POST',
@@ -499,6 +542,38 @@ export async function createDataCollectionJob(body: {
 
 export async function getLatestDataCollectionJob(): Promise<DataCollectionJob | null> {
   return request<DataCollectionJob | null>('/data-collection/jobs/latest');
+}
+
+export async function uploadTrainingDataset(body: {
+  datasetName: string;
+  createdBy?: string | null;
+  files: File[];
+}): Promise<DataCollectionDatasetGroup> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('dataset_name', body.datasetName);
+  if (body.createdBy) form.append('created_by', body.createdBy);
+  body.files.forEach(file => form.append('files', file));
+
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}/data-collection/training-dataset/upload`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+
+  if (!res.ok) {
+    const responseBody = await res.json().catch(() => null);
+    const detail = responseBody?.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((d: { msg?: string }) => d.msg ?? String(d)).join(', ')
+      : (detail ?? `${res.status} ${res.statusText}`);
+    throw new Error(message);
+  }
+
+  return res.json();
 }
 
 export function downloadTrainingDatasetUrl(groups: string[] = []): string {
@@ -685,6 +760,7 @@ export interface Comment {
   id: number;
   job_id: number;
   author: string;
+  author_nickname?: string | null;
   content: string;
   created_at: string;
   updated_at: string;
@@ -910,6 +986,24 @@ export async function deleteAnswerDataset(id: number): Promise<void> {
   return request<void>(`/answer-datasets/${id}`, { method: 'DELETE' });
 }
 
+export interface AnswerDatasetDeleteResult {
+  deleted_ids: number[];
+  deleted_file_count: number;
+}
+
+export async function deleteAnswerDatasets(ids: number[]): Promise<AnswerDatasetDeleteResult> {
+  const params = new URLSearchParams();
+  ids.forEach(id => params.append('datasets', String(id)));
+  return request<AnswerDatasetDeleteResult>(`/answer-datasets?${params.toString()}`, { method: 'DELETE' });
+}
+
+export function downloadAnswerDatasetsUrl(ids: number[] = []): string {
+  const params = new URLSearchParams();
+  ids.forEach(id => params.append('datasets', String(id)));
+  const query = params.toString();
+  return `${BASE_URL}/answer-datasets/download${query ? `?${query}` : ''}`;
+}
+
 export async function createAnswerDataset(body: {
   name: string;
   description?: string | null;
@@ -1016,6 +1110,37 @@ export async function getModels(): Promise<ModelVersion[]> {
   return request<ModelVersion[]>('/models');
 }
 
+export interface ModelCategory {
+  id: number;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  version_count: number;
+  ready_count: number;
+}
+
+export async function getModelCategories(): Promise<ModelCategory[]> {
+  return request<ModelCategory[]>('/models/categories');
+}
+
+export async function createModelCategory(name: string, createdBy: string | null): Promise<ModelCategory> {
+  return request<ModelCategory>('/models/categories', {
+    method: 'POST',
+    body: JSON.stringify({ name, created_by: createdBy }),
+  });
+}
+
+export async function renameModelCategory(id: number, name: string): Promise<ModelCategory> {
+  return request<ModelCategory>(`/models/categories/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteModelCategory(id: number): Promise<void> {
+  await request<void>(`/models/categories/${id}`, { method: 'DELETE' });
+}
+
 export async function getModel(id: number): Promise<ModelVersion> {
   if (isDemoMode()) {
     const model = demoModels().find(item => item.id === id);
@@ -1071,12 +1196,14 @@ export async function uploadModelFile(form: {
   versionLabel: string;
   modelName: string;
   architecture: 'single' | 'multi';
+  createdBy?: string | null;
 }): Promise<ModelVersion> {
   const fd = new FormData();
   for (const f of form.files) fd.append('files', f);
   fd.append('version_label', form.versionLabel);
   fd.append('model_name', form.modelName);
   fd.append('architecture', form.architecture);
+  if (form.createdBy) fd.append('created_by', form.createdBy);
 
   const token = getToken();
   const headers: Record<string, string> = {};

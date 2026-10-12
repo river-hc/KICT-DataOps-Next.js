@@ -1,26 +1,41 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { uploadModelFile } from '@/lib/api';
+import { uploadModelFile, getModelCategories, type ModelCategory } from '@/lib/api';
+import { getCurrentUsername } from '@/lib/account';
 
 interface Props {
   onClose: () => void;
   onDone: () => void;
+  defaultModelName?: string;
 }
 
 type Architecture = 'single' | 'multi';
 
 const MULTI_COUNT = 18;
 
-export default function RegisterModal({ onClose, onDone }: Props) {
+export default function RegisterModal({ onClose, onDone, defaultModelName }: Props) {
   const [architecture, setArchitecture] = useState<Architecture>('single');
   const [files, setFiles] = useState<File[]>([]);
   const [versionLabel, setVersionLabel] = useState('');
-  const [modelName, setModelName] = useState('KICT-RAIN-AI');
+  const [categories, setCategories] = useState<ModelCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [modelName, setModelName] = useState(defaultModelName || '');
+  const [creatingNewCategory, setCreatingNewCategory] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDone, setUploadDone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getModelCategories()
+      .then(list => {
+        setCategories(list);
+        setModelName(prev => prev || list[0]?.name || '');
+      })
+      .catch(() => setCategories([]))
+      .finally(() => setCategoriesLoading(false));
+  }, []);
 
   const backdropRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -52,7 +67,7 @@ export default function RegisterModal({ onClose, onDone }: Props) {
     setUploading(true);
     setUploadError(null);
     try {
-      await uploadModelFile({ files, versionLabel: versionLabel.trim(), modelName: modelName.trim(), architecture });
+      await uploadModelFile({ files, versionLabel: versionLabel.trim(), modelName: modelName.trim(), architecture, createdBy: getCurrentUsername() });
       setUploadDone(true);
       onDone();
     } catch (err) {
@@ -155,22 +170,54 @@ export default function RegisterModal({ onClose, onDone }: Props) {
 
               <div className="space-y-3">
                 <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">카테고리 <span className="text-red-500">*</span></label>
+                  {categoriesLoading ? (
+                    <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400">불러오는 중...</div>
+                  ) : creatingNewCategory ? (
+                    <div className="space-y-1.5">
+                      <input
+                        type="text"
+                        value={modelName}
+                        onChange={e => setModelName(e.target.value)}
+                        placeholder="예: KICT-RAIN-AI-v2"
+                        autoFocus
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                      />
+                      {categories.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { setCreatingNewCategory(false); setModelName(categories[0]?.name ?? ''); }}
+                          className="text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          기존 카테고리에서 선택
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <select
+                      value={modelName}
+                      onChange={e => {
+                        if (e.target.value === '__new__') { setCreatingNewCategory(true); setModelName(''); return; }
+                        setModelName(e.target.value);
+                      }}
+                      disabled={!!defaultModelName}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 disabled:bg-gray-50 disabled:text-gray-500"
+                    >
+                      {categories.length === 0 && <option value="">카테고리 없음</option>}
+                      {categories.map(c => (
+                        <option key={c.id} value={c.name}>{c.name}</option>
+                      ))}
+                      {!defaultModelName && <option value="__new__">+ 새 카테고리 추가</option>}
+                    </select>
+                  )}
+                </div>
+                <div>
                   <label className="mb-1 block text-xs font-medium text-gray-700">버전 라벨 <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={versionLabel}
                     onChange={e => setVersionLabel(e.target.value)}
                     placeholder="예: v4, custom-01"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">모델명 <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    value={modelName}
-                    onChange={e => setModelName(e.target.value)}
-                    placeholder="예: KICT-RAIN-AI"
                     className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
                   />
                 </div>

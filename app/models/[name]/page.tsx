@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Layout from '@/lib/Layout';
-import { deleteModel, getModels, updateModel, type ModelVersion } from '@/lib/api';
+import { deleteModel, displayUsername, getModels, updateModel, type ModelVersion } from '@/lib/api';
 import { formatModelDateTime, formatModelDateTimeFull, getArchitecture } from '@/lib/modelRegistry';
 import { SkeletonBlock, SkeletonStatCards, SkeletonTableRows } from '@/lib/Skeleton';
+import RegisterModal from '../RegisterModal';
 
 function ValidationBadge({ model }: { model: ModelVersion }) {
   const status = model.metrics?.validation_status ?? 'UNTESTED';
@@ -58,6 +59,7 @@ export default function ModelDetail() {
   const [editName, setEditName] = useState('');
   const [editVersion, setEditVersion] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ModelVersion | null>(null);
+  const [showRegister, setShowRegister] = useState(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -152,16 +154,32 @@ export default function ModelDetail() {
   );
 
   const titleActions = (
-    <button
-      onClick={() => router.push('/experiments')}
-      className="rounded-lg bg-gray-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
-    >
-      새 테스트케이스 만들기
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => setShowRegister(true)}
+        className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+      >
+        모델 추가
+      </button>
+      <button
+        onClick={() => router.push('/experiments')}
+        className="rounded-lg bg-gray-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
+      >
+        새 테스트케이스 만들기
+      </button>
+    </div>
   );
 
   return (
     <>
+    {showRegister && (
+      <RegisterModal
+        onClose={() => setShowRegister(false)}
+        onDone={refresh}
+        defaultModelName={modelName}
+      />
+    )}
+
     {/* 수정 모달 */}
     {editTarget && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -230,10 +248,11 @@ export default function ModelDetail() {
             <div className="border-b border-gray-100 px-4 py-3">
               <p className="text-sm font-bold text-gray-800">버전 목록</p>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  {['Version', '검증', '파일', '방식', '갱신', 'Actions'].map(header => (
+                  {['Version', '검증', '파일', '방식', '등록자', '사용 횟수', '갱신', ''].map(header => (
                     <th key={header} className="px-3 py-3 text-left text-xs font-semibold text-gray-500">{header}</th>
                   ))}
                 </tr>
@@ -253,6 +272,8 @@ export default function ModelDetail() {
                       <td className="px-3 py-3"><ValidationBadge model={model} /></td>
                       <td className="px-3 py-3 text-gray-600">{fileCount}/{expected}</td>
                       <td className="px-3 py-3 text-gray-600">{getArchitecture(model)}</td>
+                      <td className="px-3 py-3 text-xs text-gray-500">{displayUsername(model.created_by, model.created_by_nickname)}</td>
+                      <td className="px-3 py-3 text-xs text-gray-500">{model.usage_count ?? 0}회</td>
                       <td className="px-3 py-3 text-xs text-gray-400">{formatModelDateTime(model.created_at)}</td>
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-1.5">
@@ -277,6 +298,7 @@ export default function ModelDetail() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white">

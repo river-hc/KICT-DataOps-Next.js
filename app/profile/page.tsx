@@ -7,7 +7,7 @@ import {
   getCurrentUsername,
   changeNickname,
 } from '@/lib/account';
-import { changeAccountPassword } from '@/lib/api';
+import { changeAccountPassword, updateAccountNickname } from '@/lib/api';
 import { updateTcRequesterNickname } from '@/lib/experimentStore';
 
 type Notice = { type: 'success' | 'error'; text: string } | null;
@@ -39,7 +39,7 @@ export default function ProfilePage() {
 
   const initial = currentName.charAt(0).toUpperCase();
 
-  const handleNameSubmit = (e: FormEvent) => {
+  const handleNameSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setNameNotice(null);
     const trimmed = newName.trim();
@@ -52,11 +52,17 @@ export default function ProfilePage() {
       return;
     }
     setNameSaving(true);
-    changeNickname(trimmed);
-    updateTcRequesterNickname(trimmed);
-    setCurrentName(trimmed);
-    setNameSaving(false);
-    setNameNotice({ type: 'success', text: '닉네임이 변경되었습니다.' });
+    try {
+      await updateAccountNickname(getCurrentUsername(), trimmed);
+      changeNickname(trimmed);
+      updateTcRequesterNickname(trimmed);
+      setCurrentName(trimmed);
+      setNameNotice({ type: 'success', text: '닉네임이 변경되었습니다.' });
+    } catch (err) {
+      setNameNotice({ type: 'error', text: err instanceof Error ? err.message : '닉네임 변경에 실패했습니다.' });
+    } finally {
+      setNameSaving(false);
+    }
   };
 
   const handlePwSubmit = async (e: FormEvent) => {
@@ -117,6 +123,7 @@ export default function ProfilePage() {
             type="text"
             value={newName}
             onChange={e => setNewName(e.target.value)}
+            onFocus={e => e.target.select()}
             className="w-full px-3.5 py-2.5 text-sm rounded-lg border border-gray-200 focus:border-blue-400 focus:outline-none transition-colors"
             placeholder="새 닉네임"
             autoComplete="nickname"

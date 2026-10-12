@@ -149,7 +149,7 @@ function CommentSection({ jobId }: { jobId: number }) {
             <div key={comment.id} className="border-b border-gray-50 pb-2.5 last:border-0">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-semibold text-gray-800">{displayUsername(comment.author)}</span>
+                  <span className="text-xs font-semibold text-gray-800">{displayUsername(comment.author, comment.author_nickname)}</span>
                   <span className="text-[11px] text-gray-400">{fmtCommentTime(comment.created_at)}</span>
                 </div>
                 {comment.author === currentUser && editingId !== comment.id && (
@@ -267,7 +267,7 @@ export default function ExperimentResultDetail() {
 
   const steps = detail?.params.forecast_steps ?? [];
   const storedMeta = jobId != null ? loadTcModelMeta(jobId) : null;
-  const displayRequester = displayUsername(job?.user_name);
+  const displayRequester = displayUsername(job?.user_name, job?.user_name_nickname);
 
   const goPrev = useCallback(() => {
     setIsPlaying(false);

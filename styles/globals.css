@@ -139,6 +139,15 @@ body {
   animation: progress-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* AI 어시스턴트 auto-compact 진행바 */
+.progress-indeterminate-amber {
+  position: absolute;
+  inset-block: 0;
+  background: #f59e0b;
+  border-radius: 9999px;
+  animation: progress-slide 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 .login-input:focus {
   outline: none;
   border-color: var(--login-accent);

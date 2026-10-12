@@ -1,8 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { queryLlmAssistant, formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
+import { formatExecutionName, displayUsername, type AssistantResultItem } from '@/lib/api';
 import { getCurrentUsername } from '@/lib/account';
+import { loadChatHistory, sendChatMessage, updateCompactedUntilIndex, CHAT_HISTORY_EVENT, type ChatMessage } from '@/lib/chatHistoryStore';
+
+// 대화가 이만큼 쌓이면 오래된 메시지를 "N개 압축됨" 배지로 접는다 — 실제 토큰 사용량이
+// 아니라 메시지 개수 기준의 화면 연출이다(백엔드가 무상태라 실제 컨텍스트 사용량을 모른다).
+const COMPACT_THRESHOLD = 10;
+const VISIBLE_TAIL = 4;
 
 // AI를 나타내는 스파클(반짝임) 아이콘 — 물음표는 "도움말"로 읽혀서, 요즘 AI 제품들이
 // 공통적으로 쓰는 4각 별 모양으로 바꿨다.
@@ -17,11 +23,6 @@ function SparkleIcon({ className }: { className?: string }) {
 function KAvatar({ className }: { className?: string }) {
   return <span className={`font-bold ${className ?? ''}`}>K</span>;
 }
-
-type ChatMessage =
-  | { role: 'user'; text: string }
-  | { role: 'assistant'; text: string; results?: AssistantResultItem[] }
-  | { role: 'error'; text: string };
 
 const METRIC_LABEL: Record<'mae' | 'rmse' | 'csi', string> = { mae: 'MAE', rmse: 'RMSE', csi: 'CSI' };
 
@@ -58,32 +59,60 @@ export default function AiAssistantWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [compactedUntilIndex, setCompactedUntilIndex] = useState(0);
+  const [compacting, setCompacting] = useState(false);
+  const [showCompacted, setShowCompacted] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const compactingRef = useRef(false);
+
+  // 채팅 상태의 기준은 이 컴포넌트가 아니라 localStorage(chatHistoryStore)다 — 답변을 기다리는
+  // 도중 다른 페이지로 이동해서 이 컴포넌트가 언마운트돼도, 요청은 스토어 쪽에서 계속 진행되다가
+  // 끝나면 스토어에 직접 쓰고 이벤트를 쏜다. 여기서는 그 이벤트를 듣고 최신 상태로 동기화만 한다.
+  useEffect(() => {
+    function sync() {
+      const state = loadChatHistory();
+      setMessages(state.messages);
+      setCompactedUntilIndex(state.compactedUntilIndex);
+      setSending(state.pending);
+    }
+    sync();
+    window.addEventListener(CHAT_HISTORY_EVENT, sync);
+    return () => window.removeEventListener(CHAT_HISTORY_EVENT, sync);
+  }, []);
 
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, sending]);
 
-  async function handleSend() {
+  useEffect(() => {
+    const activeCount = messages.length - compactedUntilIndex;
+    if (activeCount <= COMPACT_THRESHOLD || compactingRef.current) return;
+    compactingRef.current = true;
+    setCompacting(true);
+    const timer = setTimeout(() => {
+      const nextCompactedUntilIndex = messages.length - VISIBLE_TAIL;
+      updateCompactedUntilIndex(nextCompactedUntilIndex);
+      // 스토어 이벤트 왕복을 기다리지 않고 이 컴포넌트 상태를 바로 갱신 — 새로고침 없이 즉시 줄어든다.
+      setCompactedUntilIndex(nextCompactedUntilIndex);
+      setCompacting(false);
+      setShowCompacted(false);
+      compactingRef.current = false;
+    }, 2200);
+    return () => clearTimeout(timer);
+    // compacting은 일부러 deps에서 뺐다 — setCompacting(true)가 이 effect를 다시 트리거해서
+    // 방금 건 타이머를 cleanup으로 스스로 취소해버리는 재진입 버그가 있었음(그래서 compactingRef로 가드).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, compactedUntilIndex]);
+
+  const activeCount = messages.length - compactedUntilIndex;
+  const visibleMessages = showCompacted ? messages : messages.slice(compactedUntilIndex);
+
+  function handleSend() {
     const text = input.trim();
     if (!text || sending) return;
-
-    setMessages(prev => [...prev, { role: 'user', text }]);
     setInput('');
-    setSending(true);
-    try {
-      const requester = getCurrentUsername();
-      const result = await queryLlmAssistant(text, requester);
-      setMessages(prev => [...prev, { role: 'assistant', text: result.message, results: result.results }]);
-    } catch (err) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'error', text: err instanceof Error ? err.message : '검색에 실패했습니다.' },
-      ]);
-    } finally {
-      setSending(false);
-    }
+    sendChatMessage(text, getCurrentUsername());
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -105,7 +134,7 @@ export default function AiAssistantWidget() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-gray-900">AI 어시스턴트</p>
-                <p className="text-[11px] text-gray-400">사내망 로컬 LLM · 응답이 다소 걸릴 수 있어요</p>
+                <p className="text-[11px] text-gray-400">Gemma4 E4B</p>
               </div>
               <button
                 type="button"
@@ -131,7 +160,17 @@ export default function AiAssistantWidget() {
               </div>
             </div>
 
-            {messages.map((msg, i) => {
+            {!compacting && compactedUntilIndex > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowCompacted(v => !v)}
+                className="w-full rounded-xl border border-dashed border-gray-200 bg-white px-3 py-2 text-center text-[11px] font-medium text-gray-400 transition-colors hover:border-gray-300 hover:text-gray-600"
+              >
+                {showCompacted ? '이전 대화 접기' : `이전 대화 ${compactedUntilIndex}개 압축됨 · 펼쳐보기`}
+              </button>
+            )}
+
+            {visibleMessages.map((msg, i) => {
               if (msg.role === 'user') {
                 return (
                   <div key={i} className="flex justify-end">
@@ -174,6 +213,15 @@ export default function AiAssistantWidget() {
               );
             })}
 
+            {compacting && (
+              <div className="flex flex-col gap-1.5 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2.5 text-xs font-medium text-amber-700">
+                <span>대화 기록 정리 중… (compacting)</span>
+                <div className="relative h-1 w-full overflow-hidden rounded-full bg-amber-100">
+                  <div className="progress-indeterminate-amber" />
+                </div>
+              </div>
+            )}
+
             {sending && (
               <div className="flex items-start gap-2">
                 <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-100">
@@ -181,7 +229,7 @@ export default function AiAssistantWidget() {
                 </div>
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
                   <SparkleIcon className="h-3.5 w-3.5 flex-shrink-0 text-indigo-500 [animation:ai-thinking-spin_2.5s_linear_infinite]" />
-                  <span className="animate-pulse text-sm text-gray-500">생각하는 중…</span>
+                  <span className="animate-pulse text-sm text-gray-500">Thinking...</span>
                 </div>
               </div>
             )}
@@ -194,10 +242,9 @@ export default function AiAssistantWidget() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={sending}
                 placeholder="메시지를 입력하세요"
                 rows={3}
-                className="w-full flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 disabled:text-gray-400"
+                className="w-full flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
               />
               <button
                 type="button"

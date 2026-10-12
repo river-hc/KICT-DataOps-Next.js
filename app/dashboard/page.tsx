@@ -263,7 +263,9 @@ function TcResultsTable({
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full flex flex-col overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <div>
-          <h3 className="text-sm font-semibold text-gray-700">실험 결과</h3>
+          <h3 className="text-sm font-semibold text-gray-700">
+            {activeStatus === 'ALL' ? '실험 결과' : STATUS_LABEL[activeStatus]}
+          </h3>
           <p className="text-xs text-gray-400 mt-0.5">{STATUS_LABEL[activeStatus]} 작업 · {rows.length}건</p>
         </div>
         {loading && <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
@@ -302,7 +304,7 @@ function TcResultsTable({
                   onClick={() => { if (clickable) router.push(`/experiment-results/${job.job_id}`); }}
                 >
                   <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{findExperimentName(job.experiment_id, experiments)}</td>
-                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{displayUsername(job.user_name)}</td>
+                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{displayUsername(job.user_name, job.user_name_nickname)}</td>
                   <td className="px-4 py-2.5 max-w-[180px]">
                     <p className="text-sm font-medium text-gray-800 truncate">{executionName}</p>
                   </td>

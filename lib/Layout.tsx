@@ -41,11 +41,6 @@ const Icons = {
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><polyline points="9 15 11 17 15 13" />
     </svg>
   ),
-  artifacts: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-    </svg>
-  ),
   models: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" /><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3" />
@@ -62,12 +57,6 @@ const Icons = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
       <path d="M7 18a4 4 0 01-1-7.87A5.5 5.5 0 0116.9 8H17a4 4 0 011 7.87" />
       <path d="M12 12v7M9 16l3 3 3-3" />
-    </svg>
-  ),
-  answerDataset: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M8 12l3 3 5-6" />
     </svg>
   ),
 };
@@ -90,21 +79,17 @@ type NavEntry = NavItem | NavGroup;
 const navItems: NavEntry[] = [
   { name: '대시보드',        href: '/dashboard',   icon: Icons.dashboard  },
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
-  { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
-  { name: '정답 데이터',      href: '/answer-datasets', icon: Icons.answerDataset },
-  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
   { name: '데이터 수집',      href: '/data-collection', icon: Icons.dataCollection },
+  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
 ];
 
 const modernNavItems: NavEntry[] = [
   { name: '대시보드',        href: '/dashboard',   icon: Icons.dashboard  },
   { name: '실험',            href: '/experiments', icon: Icons.experiment },
-  { name: '아티팩트',        href: '/artifacts',   icon: Icons.artifacts  },
   { name: '모델 레지스트리', href: '/models',       icon: Icons.models     },
-  { name: '정답 데이터',      href: '/answer-datasets', icon: Icons.answerDataset },
-  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
   { name: '데이터 수집',      href: '/data-collection', icon: Icons.dataCollection },
+  { name: '시스템 리소스',    href: '/system',       icon: Icons.system     },
 ];
 
 interface LayoutProps {

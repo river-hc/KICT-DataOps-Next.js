@@ -3,7 +3,7 @@
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { persistSession } from '@/lib/account';
+import { applyServerNickname, persistSession } from '@/lib/account';
 import { loginAccount, resetAccountPassword } from '@/lib/api';
 
 export default function LoginPage() {
@@ -24,6 +24,7 @@ export default function LoginPage() {
       const data = await loginAccount(username, password);
       const token = btoa(`${data.username}:${Date.now()}`);
       persistSession(token, data.username);
+      applyServerNickname(data.username, data.nickname ?? null);
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : '로그인에 실패했습니다.');
